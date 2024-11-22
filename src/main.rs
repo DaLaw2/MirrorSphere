@@ -1,9 +1,13 @@
+use crate::core::system::System;
+
 mod core;
 mod model;
 mod ui;
 mod utils;
 
 #[tokio::main]
-fn main() {
-    println!("Hello, world!");
+async fn main() {
+    System::initialize().await;
+    System::run().await;
+    System::terminate().await;
 }

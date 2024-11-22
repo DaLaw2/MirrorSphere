@@ -1,2 +1,3 @@
+pub mod log_entry;
 pub mod hash_helper;
-mod logging;
+pub mod logging;
