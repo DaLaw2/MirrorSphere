@@ -1,3 +1,5 @@
+pub mod file_hash;
 pub mod log_entry;
-pub mod hash_helper;
 pub mod logging;
+pub mod privilege;
+mod file_lock;

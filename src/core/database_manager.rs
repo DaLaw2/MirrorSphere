@@ -47,5 +47,7 @@ impl DatabaseManager {
         DATABASE_MANAGER.get().unwrap().pool.clone()
     }
 
-    pub async fn add_task(task: Task) -> Result<(), >
+    pub async fn add_task(task: Task) -> Result<(), ()> {
+        Ok(())
+    }
 }

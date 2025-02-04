@@ -2,6 +2,8 @@ use crate::core::system::System;
 
 mod core;
 mod model;
+mod platform;
+mod r#trait;
 mod ui;
 mod utils;
 

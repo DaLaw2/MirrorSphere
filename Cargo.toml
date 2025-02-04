@@ -5,8 +5,10 @@ edition = "2021"
 
 [dependencies]
 toml = "0.8.19"
+anyhow = "1.0.95"
 tracing = "0.1.40"
 thiserror = "2.0.3"
+privilege = "0.3.0"
 lazy_static = "1.5.0"
 tracing-appender = "0.2.3"
 tokio = { version = "1.41.1", features = ["full"] }
@@ -14,3 +16,7 @@ time = { version = "0.3.36", features = ["macros"] }
 serde = { version = "1.0.215", features = ["derive"] }
 sqlx = { version = "0.8.2", features = [ "runtime-tokio", "sqlite" ] }
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.59.0"
+features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_Registry", "Win32_System_Com", "Win32_UI_WindowsAndMessaging"]
