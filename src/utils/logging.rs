@@ -5,7 +5,7 @@ use tracing_subscriber::filter::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
-pub struct Logging {}
+pub struct Logging;
 
 impl Logging {
     pub async fn initialize() {

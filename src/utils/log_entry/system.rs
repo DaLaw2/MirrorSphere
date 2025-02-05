@@ -16,4 +16,5 @@ pub enum SystemEntry {
     InvalidConfig,
     #[error("Configuration not found")]
     ConfigNotFound,
+
 }

@@ -1,0 +1,4 @@
+[Config]
+retry_interval = 10
+max_batch_size = 100
+max_concurrency = 16

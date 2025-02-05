@@ -1,16 +1,14 @@
 use crate::model::config::{Config, ConfigTable};
 use crate::utils::log_entry::system::SystemEntry;
-use lazy_static::lazy_static;
-use std::cell::OnceCell;
 use std::fs;
-use std::sync::RwLock as SyncRwLock;
+use std::sync::{OnceLock, RwLock as SyncRwLock};
 use tokio::sync::RwLock as AsyncRwLock;
 use tracing::{error, info};
 
-static SYNC_CONFIG: OnceCell<SyncRwLock<Config>> = OnceCell::new();
-static ASYNC_CONFIG: OnceCell<AsyncRwLock<Config>> = OnceCell::new();
+static SYNC_CONFIG: OnceLock<SyncRwLock<Config>> = OnceLock::new();
+static ASYNC_CONFIG: OnceLock<AsyncRwLock<Config>> = OnceLock::new();
 
-pub struct ConfigManager {}
+pub struct ConfigManager;
 
 impl ConfigManager {
     pub async fn initialization() {

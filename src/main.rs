@@ -1,9 +1,11 @@
+#![feature(file_lock)]
+
 use crate::core::system::System;
 
 mod core;
+mod interface;
 mod model;
 mod platform;
-mod r#trait;
 mod ui;
 mod utils;
 

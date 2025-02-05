@@ -12,7 +12,6 @@ impl System {
         info!("{}", SystemEntry::Initializing);
         ConfigManager::initialization().await;
         DatabaseManager::initialization().await;
-
         info!("{}", SystemEntry::InitializeComplete);
     }
 
@@ -23,7 +22,7 @@ impl System {
 
     pub async fn terminate() {
         info!("{}", SystemEntry::Terminating);
-
+        DatabaseManager::terminate().await;
         info!("{}", SystemEntry::TerminateComplete);
     }
 }
