@@ -3,7 +3,7 @@ use crate::utils::log_entry::system::SystemEntry;
 use std::fs;
 use std::sync::{OnceLock, RwLock as SyncRwLock};
 use tokio::sync::RwLock as AsyncRwLock;
-use tracing::{error, info};
+use tracing::info;
 
 static SYNC_CONFIG: OnceLock<SyncRwLock<Config>> = OnceLock::new();
 static ASYNC_CONFIG: OnceLock<AsyncRwLock<Config>> = OnceLock::new();
@@ -25,20 +25,13 @@ impl ConfigManager {
                 Ok(config_table) => {
                     let config = config_table.config;
                     if !Self::validate(&config) {
-                        error!("{}", SystemEntry::InvalidConfig);
                         panic!("{}", SystemEntry::InvalidConfig);
                     }
                     config
                 }
-                Err(_) => {
-                    error!("{}", SystemEntry::InvalidConfig);
-                    panic!("{}", SystemEntry::InvalidConfig);
-                }
-            },
-            Err(_) => {
-                error!("{}", SystemEntry::ConfigNotFound);
-                panic!("{}", SystemEntry::ConfigNotFound);
+                Err(_) => panic!("{}", SystemEntry::InvalidConfig)
             }
+            Err(_) => panic!("{}", SystemEntry::ConfigNotFound)
         };
         config
     }

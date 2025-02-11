@@ -1,16 +1,45 @@
-use crate::model::backup_options::BackupOptions;
-use crate::model::backup_type::BackupType;
-use crate::model::comparison_mode::ComparisonMode;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::time::SystemTime;
 use uuid::Uuid;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum BackupType {
+    Full,
+    Incremental,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ComparisonMode {
+    // Compare size and modify time
+    Quick,
+    // Quick + compare regular file attr
+    Standard,
+    // Standard + compare file checksum
+    Thorough(HashType),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum HashType {
+    MD5,
+    SHA3,
+    SHA256,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BackupOptions {
+    lock_source: bool,
+    backup_acl: bool,
+    backup_other_file: bool,
+    advanced_file_attr: bool,
+}
 
 pub struct BackupTask {
     pub uuid: Uuid,
     pub source_path: PathBuf,
     pub destination_path: PathBuf,
     pub backup_type: BackupType,
-    pub comparison_mode: ComparisonMode,
+    pub comparison_mode: Option<ComparisonMode>,
     pub options: BackupOptions,
     pub schedule: bool,
     pub last_run_time: Option<SystemTime>,

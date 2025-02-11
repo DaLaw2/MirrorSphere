@@ -12,11 +12,8 @@ impl Logging {
         let log_directory = "logs";
         let _ = fs::create_dir_all(log_directory).await;
 
-        let file_appender = RollingFileAppender::new(
-            Rotation::DAILY,
-            log_directory,
-            "MirrorSphere",
-        );
+        let file_appender =
+            RollingFileAppender::new(Rotation::DAILY, log_directory, "MirrorSphere");
 
         let stdout_layer = tracing_subscriber::fmt::layer()
             .with_file(true)
@@ -36,9 +33,11 @@ impl Logging {
         tracing_subscriber::registry()
             .with(stdout_layer)
             .with(file_layer)
-            .with(EnvFilter::from_default_env()
-                .add_directive(Level::DEBUG.into())
-            )
+            .with(EnvFilter::from_default_env().add_directive(Level::DEBUG.into()))
             .init();
+
+        log_panics::Config::new()
+            .backtrace_mode(log_panics::BacktraceMode::Resolved)
+            .install_panic_hook()
     }
 }
