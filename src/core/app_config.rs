@@ -8,9 +8,9 @@ use tracing::info;
 static SYNC_CONFIG: OnceLock<SyncRwLock<Config>> = OnceLock::new();
 static ASYNC_CONFIG: OnceLock<AsyncRwLock<Config>> = OnceLock::new();
 
-pub struct ConfigManager;
+pub struct AppConfig;
 
-impl ConfigManager {
+impl AppConfig {
     pub async fn initialization() {
         info!("{}", SystemEntry::Initializing);
         let config = Self::load_config();
@@ -23,11 +23,7 @@ impl ConfigManager {
         let config = match fs::read_to_string("./config.toml") {
             Ok(toml_string) => match toml::from_str::<ConfigTable>(&toml_string) {
                 Ok(config_table) => {
-                    let config = config_table.config;
-                    if !Self::validate(&config) {
-                        panic!("{}", SystemEntry::InvalidConfig);
-                    }
-                    config
+                    config_table.config
                 }
                 Err(_) => panic!("{}", SystemEntry::InvalidConfig)
             }
@@ -58,13 +54,5 @@ impl ConfigManager {
         // Initialization has been ensured
         let lock = ASYNC_CONFIG.get().unwrap();
         *lock.write().await = config;
-    }
-
-    fn validate(config: &Config) -> bool {
-        Self::validate_second(config.retry_interval)
-    }
-
-    fn validate_second(second: u64) -> bool {
-        second <= 3600
     }
 }

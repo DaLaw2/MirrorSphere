@@ -1,2 +1,89 @@
-一些想法
- - 用 USN Journal 來追蹤檔案系統變更來達到快速掃描的目的
+TODO
+ - 透過 semaphore 來控制 IO 數
+ - 用事件系統來追蹤目前處理的目錄跟錯誤
+ - 使用執行緒安全的 queue 來實作演算法 可以實現演算法的平行化
+
+一些想法 (皆需要直接調用 Windows API)
+ - 用 USN Journal 來追蹤檔案系統變更來達到快速掃描的目的 (NTFS 限定)
+ - 支援 Windows NTFS ACL (Access Control List)
+ - 支援額外的檔案跟檔案屬性
+
+備份演算法
+Initialize:
+- queue = [source_root]
+- current_level_visited = {}
+- progress tracker
+
+while queue is not empty:
+    current_dir = queue.pull()
+
+    if need_resume && not reach_checkpoint:
+        continue
+
+    process current_dir:
+        - check/create directory structure
+        - compare/copy files
+
+    get subdirectories from current_dir:
+        for each sub_dir:
+            if !sub_dir.starts_with(source_root):
+                continue
+
+            if current_level_visited.contains(sub_dir):
+                continue
+
+            if is_cycle(sub_dir):
+                continue
+
+            add to queue
+            add to current_level_visited
+
+    if queue is empty:
+        if current_level_visited is empty:
+            break
+        queue.extend(current_level_visited)
+        current_level_visited.clear()
+
+    update progress
+    save checkpoint periodically
+
+平行化版本
+Initialize:
+- queue = ConcurrentQueue([source_root])
+- current_level_visited = ConcurrentHashSet
+- progress tracker
+- worker_count = N
+
+for i in 1..=worker_count:
+    spawn async worker:
+        while true:
+            current_dir = queue.pull()
+            if current_dir is None:
+                if current_level_visited.is_empty():
+                    break
+                queue.extend(current_level_visited.clear())
+                continue
+
+            if need_resume && not reach_checkpoint:
+                continue
+
+            process current_dir:
+                - check/create directory structure
+                - spawn file copy tasks
+
+            get subdirectories from current_dir:
+                for each sub_dir:
+                    if !sub_dir.starts_with(source_root):
+                        continue
+
+                    if is_cycle(sub_dir):
+                        continue
+
+                    if !current_level_visited.add(sub_dir):
+                        continue
+
+                    queue.push(sub_dir)
+
+            update progress
+            save checkpoint periodically
+join all workers
