@@ -1,4 +1,4 @@
-pub trait FileSystemTrait {
+pub trait FileSystem {
     async fn compare_folder() {
 
     }

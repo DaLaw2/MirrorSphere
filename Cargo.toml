@@ -7,6 +7,7 @@ edition = "2021"
 log = "0.4.25"
 toml = "0.8.20"
 anyhow = "1.0.95"
+dashmap = "6.1.0"
 tracing = "0.1.41"
 privilege = "0.3.0"
 thiserror = "2.0.11"
@@ -19,7 +20,6 @@ log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 serde_json = "1.0.133"
 futures = "0.3.31"
-
 
 [dependencies.uuid]
 version = "1.13.1"

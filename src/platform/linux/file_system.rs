@@ -1,4 +1,4 @@
-use crate::interface::file_system::FileSystemTrait as FileSystemTrait;
+use crate::interface::file_system::FileSystem as FileSystemTrait;
 
 pub struct FileSystem;
 

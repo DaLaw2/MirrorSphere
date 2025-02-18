@@ -1,4 +1,4 @@
-use crate::interface::database_ops::DatabaseOpsTrait;
+use crate::interface::database_ops::DatabaseOps as DatabaseOpsTrait;
 use crate::model::backup_task::BackupTask;
 use crate::platform::constants::*;
 use crate::platform::database_ops::DatabaseOps;

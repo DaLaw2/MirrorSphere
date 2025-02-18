@@ -6,7 +6,7 @@ use tokio::fs;
 use tokio::fs::File;
 use uuid::Uuid;
 
-pub trait DatabaseOpsTrait {
+pub trait DatabaseOps {
     async fn exist_database() -> bool {
         fs::metadata(DATABASE_PATH).await.is_ok()
     }
