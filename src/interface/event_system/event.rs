@@ -1,1 +1,1 @@
-pub trait Event: Clone {}
+pub trait Event: Clone + Send + 'static {}

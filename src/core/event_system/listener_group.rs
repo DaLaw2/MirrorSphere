@@ -1,12 +1,13 @@
 use crate::core::event_system::actor_dispatcher::ActorDispatcher;
 use crate::core::event_system::actor_ref::ActorRef;
 use crate::interface::event_system::actor::Actor;
-use crate::interface::event_system::message_dispatcher::MessageDispatcher;
+use crate::interface::event_system::dispatcher::Dispatcher;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
+use crate::interface::ThreadSafe;
 
 pub struct ListenerGroup<E: Event> {
-    dispatchers: Vec<Box<dyn MessageDispatcher<E>>>,
+    dispatchers: Vec<Box<dyn Dispatcher<E> + ThreadSafe>>,
 }
 
 impl<E: Event> ListenerGroup<E> {
@@ -14,15 +15,15 @@ impl<E: Event> ListenerGroup<E> {
         ListenerGroup { dispatchers: Vec::new() }
     }
 
+    pub fn subscribe<A: Actor>(&mut self, actor: ActorRef<A>, handler: impl EventHandler<A, E> + ThreadSafe) {
+        let handler = Box::new(handler);
+        let actor_dispatcher = ActorDispatcher::new(actor, handler);
+        self.dispatchers.push(Box::new(actor_dispatcher));
+    }
+
     pub fn broadcast(&self, event: E) {
         for dispatcher in self.dispatchers.iter() {
             dispatcher.dispatch(&event)
         }
-    }
-
-    pub fn subscribe<A: Actor>(&mut self, actor: ActorRef<A>, handler: impl EventHandler<A, E>) {
-        let handler = Box::new(handler);
-        let actor_dispatcher = ActorDispatcher::new(actor, handler);
-        self.dispatchers.push(Box::new(actor_dispatcher));
     }
 }

@@ -1,1 +1,3 @@
-pub trait Actor {}
+use crate::interface::ThreadSafe;
+
+pub trait Actor: ThreadSafe {}

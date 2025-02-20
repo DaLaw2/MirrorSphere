@@ -5,12 +5,13 @@ use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
-use std::sync::Arc;
+use std::sync::OnceLock;
+use crate::interface::ThreadSafe;
 
-static EVENT_BUS: EventBus = EventBus::new();
+static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
 
 pub struct EventBus {
-    listeners: DashMap<TypeId, Box<dyn Any>>,
+    listeners: DashMap<TypeId, Box<dyn Any + ThreadSafe>>,
 }
 
 impl EventBus {
@@ -21,7 +22,7 @@ impl EventBus {
     }
 
     fn instance() -> &'static EventBus {
-        &EVENT_BUS
+        &EVENT_BUS.get_or_init(|| EventBus::new())
     }
 
     pub async fn publish<E: Event>(event: &E) {
@@ -33,14 +34,13 @@ impl EventBus {
                 .value()
                 .downcast_ref::<ListenerGroup<E>>()
                 .unwrap();
-
-            listeners.broadcast(event).await;
+            listeners.broadcast(event.clone());
         }
     }
 
     pub async fn subscribe<A: Actor, E: Event>(
         actor: &ActorRef<A>,
-        handler: impl EventHandler<A, E> + 'static,
+        handler: impl EventHandler<A, E> + ThreadSafe,
     ) {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
@@ -55,6 +55,6 @@ impl EventBus {
             .downcast_mut::<ListenerGroup<E>>()
             .unwrap();
 
-        listeners.subscribe(actor.clone(), handler).await;
+        listeners.subscribe(actor.clone(), handler);
     }
 }

@@ -12,3 +12,9 @@ impl<A: Actor> ActorRef<A> {
         self.0.lock()
     }
 }
+
+impl<A: Actor> Clone for ActorRef<A> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
