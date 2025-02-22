@@ -1,3 +1,4 @@
+use futures::future;
 use crate::core::event_system::actor_dispatcher::ActorDispatcher;
 use crate::core::event_system::actor_ref::ActorRef;
 use crate::interface::event_system::actor::Actor;
@@ -12,18 +13,26 @@ pub struct ListenerGroup<E: Event> {
 
 impl<E: Event> ListenerGroup<E> {
     pub fn new() -> Self {
-        ListenerGroup { dispatchers: Vec::new() }
+        ListenerGroup {
+            dispatchers: Vec::new(),
+        }
     }
 
-    pub fn subscribe<A: Actor>(&mut self, actor: ActorRef<A>, handler: impl EventHandler<A, E> + ThreadSafe) {
+    pub fn subscribe<A: Actor>(
+        &mut self,
+        actor: ActorRef<A>,
+        handler: impl EventHandler<A, E> + ThreadSafe,
+    ) {
         let handler = Box::new(handler);
         let actor_dispatcher = ActorDispatcher::new(actor, handler);
         self.dispatchers.push(Box::new(actor_dispatcher));
     }
 
-    pub fn broadcast(&self, event: E) {
-        for dispatcher in self.dispatchers.iter() {
-            dispatcher.dispatch(&event)
-        }
+    pub async fn broadcast(&self, event: E) {
+        let futures = self.dispatchers
+            .iter()
+            .map(|dispatcher| dispatcher.dispatch(event.clone()));
+
+        future::join_all(futures).await;
     }
 }

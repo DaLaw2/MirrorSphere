@@ -1,5 +1,7 @@
+use async_trait::async_trait;
 use crate::interface::event_system::event::Event;
 
+#[async_trait]
 pub trait Dispatcher<E: Event> {
-    fn dispatch(&self, event: &E);
+    async fn dispatch(&self, event: E);
 }

@@ -3,10 +3,11 @@ use crate::core::event_system::listener_group::ListenerGroup;
 use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
+use crate::interface::ThreadSafe;
+use crate::utils::log_entry::system::SystemEntry;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::OnceLock;
-use crate::interface::ThreadSafe;
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
 
@@ -25,23 +26,10 @@ impl EventBus {
         &EVENT_BUS.get_or_init(|| EventBus::new())
     }
 
-    pub async fn publish<E: Event>(event: &E) {
-        let instance = Self::instance();
-        let type_id = TypeId::of::<ListenerGroup<E>>();
-
-        if let Some(listeners) = instance.listeners.get_mut(&type_id) {
-            let listeners = listeners
-                .value()
-                .downcast_ref::<ListenerGroup<E>>()
-                .unwrap();
-            listeners.broadcast(event.clone());
-        }
-    }
-
     pub async fn subscribe<A: Actor, E: Event>(
         actor: &ActorRef<A>,
         handler: impl EventHandler<A, E> + ThreadSafe,
-    ) {
+    ) -> anyhow::Result<()> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
 
@@ -53,8 +41,25 @@ impl EventBus {
         let listeners = entry
             .value_mut()
             .downcast_mut::<ListenerGroup<E>>()
-            .unwrap();
+            .ok_or(|| SystemEntry::InternalError)?;
 
         listeners.subscribe(actor.clone(), handler);
+
+        Ok(())
+    }
+
+    pub async fn publish<E: Event>(event: E) -> anyhow::Result<()> {
+        let instance = Self::instance();
+        let type_id = TypeId::of::<ListenerGroup<E>>();
+
+        if let Some(listeners) = instance.listeners.get_mut(&type_id) {
+            let listeners = listeners
+                .value()
+                .downcast_ref::<ListenerGroup<E>>()
+                .ok_or(|| SystemEntry::InternalError)?;
+            listeners.broadcast(event).await;
+        }
+
+        Ok(())
     }
 }
