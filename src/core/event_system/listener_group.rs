@@ -32,7 +32,6 @@ impl<E: Event> ListenerGroup<E> {
         let futures = self.dispatchers
             .iter()
             .map(|dispatcher| dispatcher.dispatch(event.clone()));
-
         future::join_all(futures).await;
     }
 }

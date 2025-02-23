@@ -32,26 +32,21 @@ impl EventBus {
     ) -> anyhow::Result<()> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
-
         let mut entry = instance
             .listeners
             .entry(type_id)
             .or_insert_with(|| Box::new(ListenerGroup::<E>::new()));
-
         let listeners = entry
             .value_mut()
             .downcast_mut::<ListenerGroup<E>>()
             .ok_or(|| SystemEntry::InternalError)?;
-
         listeners.subscribe(actor.clone(), handler);
-
         Ok(())
     }
 
     pub async fn publish<E: Event>(event: E) -> anyhow::Result<()> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
-
         if let Some(listeners) = instance.listeners.get_mut(&type_id) {
             let listeners = listeners
                 .value()
@@ -59,7 +54,6 @@ impl EventBus {
                 .ok_or(|| SystemEntry::InternalError)?;
             listeners.broadcast(event).await;
         }
-
         Ok(())
     }
 }

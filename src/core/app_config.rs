@@ -32,18 +32,17 @@ impl AppConfig {
         config
     }
 
-    pub fn now_blocking() -> Config {
+    pub async fn fetch() -> Config {
+        // Initialization has been ensured
+        let lock = ASYNC_CONFIG.get().unwrap();
+        lock.read().await.clone()
+    }
+
+    pub fn fetch_blocking() -> Config {
         // Initialization has been ensured
         let lock = SYNC_CONFIG.get().unwrap();
         // There is no lock acquired multiple times, so this is safe
         lock.read().unwrap().clone()
-    }
-
-    pub async fn now() -> Config {
-        // Initialization has been ensured
-        let lock = ASYNC_CONFIG.get().unwrap();
-        // There is no lock acquired multiple times, so this is safe
-        lock.read().await.clone()
     }
 
     pub async fn update(config: Config) {
