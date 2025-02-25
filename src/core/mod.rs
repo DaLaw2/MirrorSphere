@@ -4,3 +4,4 @@ pub mod engine;
 pub mod system;
 pub mod event_system;
 pub mod io_manager;
+mod progress_tracker;
