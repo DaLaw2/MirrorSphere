@@ -39,7 +39,7 @@ impl EventBus {
         let listeners = entry
             .value_mut()
             .downcast_mut::<ListenerGroup<E>>()
-            .ok_or(|| SystemEntry::InternalError)?;
+            .ok_or(SystemEntry::InternalError)?;
         listeners.subscribe(actor.clone(), handler);
         Ok(())
     }
@@ -51,7 +51,7 @@ impl EventBus {
             let listeners = listeners
                 .value()
                 .downcast_ref::<ListenerGroup<E>>()
-                .ok_or(|| SystemEntry::InternalError)?;
+                .ok_or(SystemEntry::InternalError)?;
             listeners.broadcast(event).await;
         }
         Ok(())

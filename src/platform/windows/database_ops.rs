@@ -1,8 +1,17 @@
-use crate::interface::database_ops::DatabaseOps as DatabaseOpsTrait;
+use sqlx::SqlitePool;
+use crate::interface::database_ops::DatabaseOpsTrait;
 
-#[derive(Debug, Copy, Clone)]
-pub struct DatabaseOps;
+#[derive(Clone, Debug)]
+pub struct DatabaseOps {
+    pool: SqlitePool,
+}
 
 impl DatabaseOpsTrait for DatabaseOps {
+    fn new(pool: SqlitePool) -> Self {
+        DatabaseOps { pool }
+    }
 
+    fn get_pool(&self) -> SqlitePool {
+        self.pool.clone()
+    }
 }

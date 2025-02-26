@@ -1,11 +1,7 @@
 use crate::interface::event_system::actor::Actor;
 
-pub struct ProgressTracker {
+pub struct ProgressTracker {}
 
-}
-
-impl ProgressTracker {
-
-}
+impl ProgressTracker {}
 
 impl Actor for ProgressTracker {}

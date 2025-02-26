@@ -1,12 +1,18 @@
 use crate::model::backup_task::BackupTask;
 use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
 use crate::utils::log_entry::database::DatabaseEntry;
+use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tokio::fs;
 use tokio::fs::File;
 use uuid::Uuid;
 
-pub trait DatabaseOps {
+#[async_trait]
+pub trait DatabaseOpsTrait {
+    fn new(pool: SqlitePool) -> Self;
+
+    fn get_pool(&self) -> SqlitePool;
+
     async fn exist_database() -> bool {
         fs::metadata(DATABASE_PATH).await.is_ok()
     }
@@ -36,7 +42,8 @@ pub trait DatabaseOps {
         Ok(())
     }
 
-    async fn exist_table(pool: SqlitePool, table_name: &str) -> bool {
+    async fn exist_table(&self, table_name: &str) -> bool {
+        let pool = self.get_pool();
         sqlx::query_scalar::<_, bool>(
             "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?)",
         )
@@ -46,7 +53,8 @@ pub trait DatabaseOps {
         .unwrap_or(false)
     }
 
-    async fn create_backup_task_table(pool: SqlitePool) -> anyhow::Result<()> {
+    async fn create_backup_task_table(&self) -> anyhow::Result<()> {
+        let pool = self.get_pool();
         sqlx::query(
             r#"
             CREATE TABLE BackupTasks (
@@ -67,7 +75,8 @@ pub trait DatabaseOps {
         Ok(())
     }
 
-    async fn add_backup_task(pool: SqlitePool, backup_task: BackupTask) -> anyhow::Result<()> {
+    async fn add_backup_task(&self, backup_task: BackupTask) -> anyhow::Result<()> {
+        let pool = self.get_pool();
         sqlx::query(
             r#"
         INSERT INTO BackupTasks (
@@ -106,7 +115,8 @@ pub trait DatabaseOps {
         Ok(())
     }
 
-    async fn modify_backup_task(pool: SqlitePool, backup_task: BackupTask) -> anyhow::Result<()> {
+    async fn modify_backup_task(&self, backup_task: BackupTask) -> anyhow::Result<()> {
+        let pool = self.get_pool();
         sqlx::query(
             r#"
         UPDATE BackupTasks
@@ -145,7 +155,8 @@ pub trait DatabaseOps {
         Ok(())
     }
 
-    async fn remove_backup_task(pool: SqlitePool, uuid: Uuid) -> anyhow::Result<()> {
+    async fn remove_backup_task(&self, uuid: Uuid) -> anyhow::Result<()> {
+        let pool = self.get_pool();
         sqlx::query("DELETE FROM BackupTasks WHERE uuid = ?")
             .bind(uuid)
             .execute(&pool)

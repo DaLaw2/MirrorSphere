@@ -1,11 +1,12 @@
+use crate::interface::event_system::event::Event;
 use std::path::PathBuf;
 use uuid::Uuid;
-use crate::interface::event_system::event::Event;
 
 #[derive(Clone)]
 pub enum IOType {
     ListDirectory,
     CreateDirectory,
+    DeleteDirectory,
     CopyFile,
     DeleteFile,
     ChangeAttributes,
@@ -14,10 +15,10 @@ pub enum IOType {
 
 #[derive(Clone)]
 pub struct IOEvent {
-    task_id: Uuid,
-    io_type: IOType,
-    source: Option<PathBuf>,
-    destination: PathBuf,
+    pub task_id: Uuid,
+    pub io_type: IOType,
+    pub source: Option<PathBuf>,
+    pub destination: PathBuf,
 }
 
 impl Event for IOEvent {}
