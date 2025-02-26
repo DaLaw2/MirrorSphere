@@ -23,6 +23,7 @@ impl IOManager {
     }
 
     pub fn instance() -> &'static IOManager {
+        // Initialization has been ensured
         IO_MANAGER.get().unwrap()
     }
 }

@@ -22,9 +22,7 @@ impl AppConfig {
     fn load_config() -> Config {
         let config = match fs::read_to_string("./config.toml") {
             Ok(toml_string) => match toml::from_str::<ConfigTable>(&toml_string) {
-                Ok(config_table) => {
-                    config_table.config
-                }
+                Ok(config_table) => config_table.config,
                 Err(_) => panic!("{}", SystemEntry::InvalidConfig)
             }
             Err(_) => panic!("{}", SystemEntry::ConfigNotFound)
@@ -41,7 +39,7 @@ impl AppConfig {
     pub fn fetch_blocking() -> Config {
         // Initialization has been ensured
         let lock = SYNC_CONFIG.get().unwrap();
-        // There is no lock acquired multiple times, so this is safe
+        // In extreme cases, a serious error occurs in the system
         lock.read().unwrap().clone()
     }
 

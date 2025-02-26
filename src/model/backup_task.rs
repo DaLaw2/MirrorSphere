@@ -3,6 +3,13 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use uuid::Uuid;
 
+#[derive(Debug)]
+pub enum BackupState {
+    Running,
+    Suspended,
+    Stopped,
+}
+
 #[derive(Serialize, Deserialize, Debug)]
 pub enum BackupType {
     Full,
@@ -34,8 +41,10 @@ pub struct BackupOptions {
     advanced_file_attr: bool,
 }
 
+#[derive(Debug)]
 pub struct BackupTask {
     pub uuid: Uuid,
+    pub state: BackupState,
     pub source_path: PathBuf,
     pub destination_path: PathBuf,
     pub backup_type: BackupType,

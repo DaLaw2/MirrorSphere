@@ -1,4 +1,3 @@
-use futures::future;
 use crate::core::event_system::actor_dispatcher::ActorDispatcher;
 use crate::core::event_system::actor_ref::ActorRef;
 use crate::interface::event_system::actor::Actor;
@@ -6,6 +5,7 @@ use crate::interface::event_system::dispatcher::Dispatcher;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
 use crate::interface::ThreadSafe;
+use futures::future;
 
 pub struct ListenerGroup<E: Event> {
     dispatchers: Vec<Box<dyn Dispatcher<E> + ThreadSafe>>,
@@ -29,7 +29,8 @@ impl<E: Event> ListenerGroup<E> {
     }
 
     pub async fn broadcast(&self, event: E) {
-        let futures = self.dispatchers
+        let futures = self
+            .dispatchers
             .iter()
             .map(|dispatcher| dispatcher.dispatch(event.clone()));
         future::join_all(futures).await;

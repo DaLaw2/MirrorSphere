@@ -9,6 +9,8 @@ pub enum IOType {
     DeleteDirectory,
     CopyFile,
     DeleteFile,
+    GetAttributes,
+    CalculateHash,
     ChangeAttributes,
     ChangeAccessControlList,
 }

@@ -42,6 +42,11 @@ pub trait DatabaseOpsTrait {
         Ok(())
     }
 
+    async fn close_connection(&self) {
+        let pool = self.get_pool();
+        pool.close().await
+    }
+
     async fn exist_table(&self, table_name: &str) -> bool {
         let pool = self.get_pool();
         sqlx::query_scalar::<_, bool>(

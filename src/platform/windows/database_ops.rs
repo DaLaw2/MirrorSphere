@@ -1,5 +1,5 @@
-use sqlx::SqlitePool;
 use crate::interface::database_ops::DatabaseOpsTrait;
+use sqlx::SqlitePool;
 
 #[derive(Clone, Debug)]
 pub struct DatabaseOps {

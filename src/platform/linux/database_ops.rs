@@ -1,6 +1,6 @@
+use crate::interface::database_ops::DatabaseOpsTrait;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use crate::interface::database_ops::DatabaseOpsTrait;
 
 #[derive(Clone, Debug)]
 pub struct DatabaseOps {
