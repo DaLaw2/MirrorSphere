@@ -1,7 +1,4 @@
 use thiserror::Error;
 
 #[derive(Error, Debug)]
-pub enum IOEntry {
-    SemaphoreClosed,
-    
-}
+pub enum EventEntry {}

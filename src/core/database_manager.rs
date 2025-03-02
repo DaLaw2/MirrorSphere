@@ -41,15 +41,15 @@ impl DatabaseManager {
         info!("{}", SystemEntry::InitializeComplete);
     }
 
+    pub fn instance() -> &'static DatabaseManager {
+        // Initialization has been ensured
+        DATABASE_MANAGER.get().unwrap()
+    }
+
     pub async fn terminate() {
         let instance = DatabaseManager::instance();
         instance.close_connection().await;
         let _ = DatabaseOps::unlock_database().await;
-    }
-
-    pub fn instance() -> &'static DatabaseManager {
-        // Initialization has been ensured
-        DATABASE_MANAGER.get().unwrap()
     }
 }
 

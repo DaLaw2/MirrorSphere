@@ -26,6 +26,11 @@ impl IOManager {
         // Initialization has been ensured
         IO_MANAGER.get().unwrap()
     }
+
+    pub fn terminate() {
+        let instance = Self::instance();
+        instance.file_system.semaphore().close();
+    }
 }
 
 impl Deref for IOManager {

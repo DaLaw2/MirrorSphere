@@ -1,5 +1,10 @@
 use crate::core::event_system::event_bus::EventBus;
-use crate::model::event::io_event::{IOEvent, IOType};
+use crate::model::event::io::directory::CreateDirectoryEvent;
+use crate::model::event::io::directory::DeleteDirectoryEvent;
+use crate::model::event::io::directory::ListDirectoryEvent;
+use crate::model::event::io::file::CopyFileEvent;
+use crate::model::event::io::file::DeleteFileEvent;
+use crate::utils::log_entry::io::IOEntry;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -15,29 +20,32 @@ pub trait FileSystemTrait {
 
     fn semaphore(&self) -> Arc<Semaphore>;
 
-    async fn list_directory(&self, path: PathBuf) -> anyhow::Result<Vec<PathBuf>> {
+    async fn list_directory(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Vec<PathBuf>> {
         let semaphore = self.semaphore();
-        let _permit = semaphore.acquire_owned().await?;
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
         let mut result = Vec::new();
-        let reader = fs::read_dir(path).await?;
+        let reader = fs::read_dir(&path).await?;
         let mut entries = ReadDirStream::new(reader);
         while let Some(entry) = entries.next().await {
             result.push(entry?.path());
         }
+        let event = ListDirectoryEvent { task_id, path };
+        EventBus::publish(event).await?;
         Ok(result)
     }
 
     async fn create_directory(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
-        let _permit = semaphore.acquire_owned().await?;
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
         fs::create_dir_all(&path).await?;
-        let io_event = IOEvent {
-            task_id,
-            io_type: IOType::CreateDirectory,
-            source: None,
-            destination,
-        };
-        EventBus::publish(io_event).await?;
+        let event = CreateDirectoryEvent { task_id, path };
+        EventBus::publish(event).await?;
         Ok(())
     }
 
@@ -48,43 +56,41 @@ pub trait FileSystemTrait {
         destination: PathBuf,
     ) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
-        let _permit = semaphore.acquire_owned().await?;
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
         fs::copy(&source, &destination).await?;
-        let io_event = IOEvent {
+        let event = CopyFileEvent {
             task_id,
-            io_type: IOType::CopyFile,
-            source: Some(source),
+            source,
             destination,
         };
-        EventBus::publish(io_event).await?;
+        EventBus::publish(event).await?;
         Ok(())
     }
 
     async fn delete_directory(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
-        let _permit = semaphore.acquire_owned().await?;
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
         fs::remove_dir_all(&path).await?;
-        let io_event = IOEvent {
-            task_id,
-            io_type: IOType::DeleteDirectory,
-            source: None,
-            destination,
-        };
-        EventBus::publish(io_event).await?;
+        let event = DeleteDirectoryEvent { task_id, path };
+        EventBus::publish(event).await?;
         Ok(())
     }
 
     async fn delete_file(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
-        let _permit = semaphore.acquire_owned().await?;
-        fs::remove_file(path).await?;
-        let io_event = IOEvent {
-            task_id,
-            io_type: IOType::DeleteFile,
-            source: None,
-            destination,
-        };
-        EventBus::publish(io_event).await?;
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
+        fs::remove_file(&path).await?;
+        let event = DeleteFileEvent { task_id, path };
+        EventBus::publish(event).await?;
         Ok(())
     }
 }

@@ -5,7 +5,6 @@ use crate::core::io_manager::IOManager;
 use crate::platform::elevate::elevate;
 use crate::utils::log_entry::system::SystemEntry;
 use crate::utils::logging::Logging;
-use crate::utils::privilege::elevate;
 use privilege::user::privileged;
 use tracing::info;
 
@@ -17,7 +16,9 @@ impl System {
         info!("{}", SystemEntry::Initializing);
         if !privileged() {
             info!("{}", SystemEntry::ReRunAsAdmin);
-            elevate().map_err(SystemEntry::RunAsAdminFailed).unwrap();
+            elevate()
+                .map_err(|_| SystemEntry::RunAsAdminFailed)
+                .unwrap();
         }
         AppConfig::initialization().await;
         Engine::initialize().await;

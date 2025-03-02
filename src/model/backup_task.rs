@@ -3,20 +3,27 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use uuid::Uuid;
 
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BackupState {
     Running,
     Suspended,
     Stopped,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum BackupType {
     Full,
     Incremental,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub enum HashType {
+    MD5,
+    SHA3,
+    SHA256,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum ComparisonMode {
     // Compare size and modify time
     Quick,
@@ -26,14 +33,7 @@ pub enum ComparisonMode {
     Thorough(HashType),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub enum HashType {
-    MD5,
-    SHA3,
-    SHA256,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BackupOptions {
     lock_source: bool,
     backup_acl: bool,
@@ -41,7 +41,7 @@ pub struct BackupOptions {
     advanced_file_attr: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct BackupTask {
     pub uuid: Uuid,
     pub state: BackupState,
