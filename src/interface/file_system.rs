@@ -31,10 +31,13 @@ pub trait FileSystemTrait {
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
         let mut result = Vec::new();
-        let reader = fs::read_dir(&path).await?;
+        let reader = fs::read_dir(&path)
+            .await
+            .map_err(|_| IOEntry::ReadDirectoryFailed)?;
         let mut entries = ReadDirStream::new(reader);
         while let Some(entry) = entries.next().await {
-            result.push(entry?.path());
+            let path = entry.map_err(|_| IOEntry::ReadFileFailed)?.path();
+            result.push(path);
         }
         let event = ListDirectoryEvent { task_id, path };
         EventBus::publish(event).await?;
@@ -47,7 +50,9 @@ pub trait FileSystemTrait {
             .acquire_owned()
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
-        fs::create_dir_all(&path).await?;
+        fs::create_dir_all(&path)
+            .await
+            .map_err(|_| IOEntry::CreateDirectoryFailed)?;
         let event = CreateDirectoryEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -59,7 +64,9 @@ pub trait FileSystemTrait {
             .acquire_owned()
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
-        fs::remove_dir_all(&path).await?;
+        fs::remove_dir_all(&path)
+            .await
+            .map_err(|_| IOEntry::DeleteDirectoryFailed)?;
         let event = DeleteDirectoryEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -76,7 +83,9 @@ pub trait FileSystemTrait {
             .acquire_owned()
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
-        fs::copy(&source, &destination).await?;
+        fs::copy(&source, &destination)
+            .await
+            .map_err(|_| IOEntry::CopyFileFailed)?;
         let event = CopyFileEvent {
             task_id,
             source,
@@ -92,7 +101,9 @@ pub trait FileSystemTrait {
             .acquire_owned()
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
-        fs::remove_file(&path).await?;
+        fs::remove_file(&path)
+            .await
+            .map_err(|_| IOEntry::DeleteFileFailed)?;
         let event = DeleteFileEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -122,26 +133,41 @@ pub trait FileSystemTrait {
 
     async fn compare_attributes(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
     ) -> anyhow::Result<bool>;
 
     async fn compare_advanced_attributes(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
     ) -> anyhow::Result<bool>;
 
+    async fn get_permission(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+    ) -> anyhow::Result<PermissionAttributes>;
+
+    async fn set_permission(
+        &self,
+        task_id: Uuid,
+        permission: PermissionAttributes,
+    ) -> anyhow::Result<()>;
+
     async fn standard_compare(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
         advanced_attributes: bool,
     ) -> anyhow::Result<bool> {
         let compare_result = if advanced_attributes {
-            self.compare_attributes(source, destination).await?
+            self.compare_attributes(task_id, source, destination).await?
         } else {
-            self.compare_advanced_attributes(source, destination).await?
+            self.compare_advanced_attributes(task_id, source, destination).await?
         };
         if !compare_result {
             return Ok(false);
@@ -178,19 +204,25 @@ pub trait FileSystemTrait {
 
     async fn thorough_compare(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
         hash_type: HashType,
         advanced_attributes: bool,
     ) -> anyhow::Result<bool> {
         if !self
-            .standard_compare(source.clone(), destination.clone(), advanced_attributes)
+            .standard_compare(
+                task_id,
+                source.clone(),
+                destination.clone(),
+                advanced_attributes,
+            )
             .await?
         {
             return Ok(false);
         }
-        let source_file_hash = self.calculate_hash(source, hash_type).await?;
-        let destination_file_hash = self.calculate_hash(destination, hash_type).await?;
+        let source_file_hash = self.calculate_hash(task_id, source, hash_type).await?;
+        let destination_file_hash = self.calculate_hash(task_id, destination, hash_type).await?;
 
         Ok(source_file_hash == destination_file_hash)
     }

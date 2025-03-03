@@ -1,5 +1,5 @@
 use crate::interface::file_system::FileSystemTrait;
-use crate::platform::attributes::{AdvancedAttributes, Attributes};
+use crate::platform::attributes::{AdvancedAttributes, Attributes, PermissionAttributes};
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -52,6 +52,7 @@ impl FileSystemTrait for FileSystem {
 
     async fn compare_attributes(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
     ) -> anyhow::Result<bool> {
@@ -60,9 +61,26 @@ impl FileSystemTrait for FileSystem {
 
     async fn compare_advanced_attributes(
         &self,
+        task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
     ) -> anyhow::Result<bool> {
+        todo!()
+    }
+
+    async fn get_permission(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+    ) -> anyhow::Result<PermissionAttributes> {
+        todo!()
+    }
+
+    async fn set_permission(
+        &self,
+        task_id: Uuid,
+        permission: PermissionAttributes,
+    ) -> anyhow::Result<()> {
         todo!()
     }
 }
