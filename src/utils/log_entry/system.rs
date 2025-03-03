@@ -22,4 +22,6 @@ pub enum SystemEntry {
     ConfigNotFound,
     #[error("Internal error")]
     InternalError,
+    #[error("Unknown error")]
+    ThreadPanic,
 }

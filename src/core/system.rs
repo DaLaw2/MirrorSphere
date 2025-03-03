@@ -8,7 +8,7 @@ use crate::utils::logging::Logging;
 use privilege::user::privileged;
 use tracing::info;
 
-pub struct System {}
+pub struct System;
 
 impl System {
     pub async fn initialize() {
@@ -28,7 +28,6 @@ impl System {
     }
 
     pub async fn run() {
-        Engine::run().await;
         info!("{}", SystemEntry::Online);
     }
 

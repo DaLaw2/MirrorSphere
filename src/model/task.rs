@@ -3,31 +3,32 @@ use std::path::PathBuf;
 use std::time::SystemTime;
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupState {
     Running,
     Suspended,
     Stopped,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupType {
     Full,
     Incremental,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HashType {
     MD5,
     SHA3,
     SHA256,
+    BLAKE2B,
+    BLAKE2S,
+    BLAKE3,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonMode {
-    // Compare size and modify time
-    Quick,
-    // Quick + compare regular file attr
+    // Compare size and modify time and regular file attr
     Standard,
     // Standard + compare file checksum
     Thorough(HashType),

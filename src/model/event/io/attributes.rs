@@ -11,9 +11,9 @@ pub struct GetAttributesEvent {
 impl Event for GetAttributesEvent {}
 
 #[derive(Clone)]
-pub struct ChangeAttributesEvent {
+pub struct SetAttributesEvent {
     pub task_id: Uuid,
     pub path: PathBuf,
 }
 
-impl Event for ChangeAttributesEvent {}
+impl Event for SetAttributesEvent {}

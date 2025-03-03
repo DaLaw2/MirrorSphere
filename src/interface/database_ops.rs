@@ -1,4 +1,4 @@
-use crate::model::backup_task::BackupTask;
+use crate::model::task::BackupTask;
 use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
 use crate::utils::log_entry::database::DatabaseEntry;
 use async_trait::async_trait;

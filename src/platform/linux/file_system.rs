@@ -1,7 +1,10 @@
 use crate::interface::file_system::FileSystemTrait;
+use crate::platform::attributes::{AdvancedAttributes, Attributes};
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
@@ -15,5 +18,51 @@ impl FileSystemTrait for FileSystem {
 
     fn semaphore(&self) -> Arc<Semaphore> {
         self.semaphore.clone()
+    }
+
+    async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes> {
+        todo!()
+    }
+
+    async fn get_advanced_attributes(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+    ) -> anyhow::Result<AdvancedAttributes> {
+        todo!()
+    }
+
+    async fn set_attributes(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+        attributes: Attributes,
+    ) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    async fn set_advanced_attributes(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+        attributes: AdvancedAttributes,
+    ) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    async fn compare_attributes(
+        &self,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> anyhow::Result<bool> {
+        todo!()
+    }
+
+    async fn compare_advanced_attributes(
+        &self,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> anyhow::Result<bool> {
+        todo!()
     }
 }

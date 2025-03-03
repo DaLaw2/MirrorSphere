@@ -1,3 +1,3 @@
-pub mod backup_task;
+pub mod task;
 pub mod config;
 pub mod event;
