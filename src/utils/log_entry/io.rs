@@ -6,9 +6,6 @@ pub enum IOEntry {
     SemaphoreClosed,
     #[error("Create directory failed")]
     CreateDirectoryFailed,
-
-
-
     #[error("Read directory failed")]
     ReadDirectoryFailed,
     #[error("Read file failed")]
@@ -21,4 +18,6 @@ pub enum IOEntry {
     DeleteFileFailed,
     #[error("Get file metadata failed")]
     GetMetadataFailed,
+    #[error("Set file metadata failed")]
+    SetMetadataFailed,
 }

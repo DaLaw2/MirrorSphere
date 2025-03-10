@@ -28,6 +28,7 @@ blake2 = "0.10.6"
 digest = "0.10.7"
 md-5 = "0.10.6"
 
+
 [dependencies.blake3]
 version = "1.6.1"
 features = ["traits-preview"]
@@ -35,6 +36,9 @@ features = ["traits-preview"]
 [dependencies.uuid]
 version = "1.13.1"
 features = ["v4", "fast-rng", "serde"]
+
+[target.'cfg(windows)'.windows-core]
+version = "0.60.1"
 
 [target.'cfg(windows)'.dependencies.windows-acl]
 version = "0.3.0"

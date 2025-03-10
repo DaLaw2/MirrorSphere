@@ -111,12 +111,6 @@ pub trait FileSystemTrait {
 
     async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes>;
 
-    async fn get_advanced_attributes(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-    ) -> anyhow::Result<AdvancedAttributes>;
-
     async fn set_attributes(
         &self,
         task_id: Uuid,
@@ -124,21 +118,7 @@ pub trait FileSystemTrait {
         attributes: Attributes,
     ) -> anyhow::Result<()>;
 
-    async fn set_advanced_attributes(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        attributes: AdvancedAttributes,
-    ) -> anyhow::Result<()>;
-
     async fn compare_attributes(
-        &self,
-        task_id: Uuid,
-        source: PathBuf,
-        destination: PathBuf,
-    ) -> anyhow::Result<bool>;
-
-    async fn compare_advanced_attributes(
         &self,
         task_id: Uuid,
         source: PathBuf,
