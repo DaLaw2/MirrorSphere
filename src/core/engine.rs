@@ -1,12 +1,10 @@
-use std::path::PathBuf;
 use crate::model::task::BackupTask;
 use crate::utils::log_entry::task::TaskEntry;
-use dashmap::{DashMap, DashSet};
-use std::sync::{Arc, OnceLock};
+use dashmap::DashMap;
+use std::sync::OnceLock;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver as OneShotReceiver, Sender as OneShotSender};
 use uuid::Uuid;
-use crate::core::app_config::AppConfig;
 
 pub static ENGINE: OnceLock<Engine> = OnceLock::new();
 

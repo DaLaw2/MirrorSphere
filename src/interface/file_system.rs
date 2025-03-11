@@ -8,7 +8,6 @@ use crate::utils::file_hash::*;
 use crate::utils::log_entry::io::IOEntry;
 use crate::utils::log_entry::system::SystemEntry;
 use async_trait::async_trait;
-use digest::Digest;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -125,16 +124,13 @@ pub trait FileSystemTrait {
         destination: PathBuf,
     ) -> anyhow::Result<bool>;
 
-    async fn get_permission(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-    ) -> anyhow::Result<PermissionAttributes>;
+    async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions>;
 
     async fn set_permission(
         &self,
         task_id: Uuid,
-        permission: PermissionAttributes,
+        path: PathBuf,
+        permission: Permissions,
     ) -> anyhow::Result<()>;
 
     async fn standard_compare(
@@ -142,14 +138,11 @@ pub trait FileSystemTrait {
         task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
-        advanced_attributes: bool,
     ) -> anyhow::Result<bool> {
-        let compare_result = if advanced_attributes {
-            self.compare_attributes(task_id, source, destination).await?
-        } else {
-            self.compare_advanced_attributes(task_id, source, destination).await?
-        };
-        if !compare_result {
+        if !self
+            .compare_attributes(task_id, source.clone(), destination.clone())
+            .await?
+        {
             return Ok(false);
         }
 
@@ -188,15 +181,9 @@ pub trait FileSystemTrait {
         source: PathBuf,
         destination: PathBuf,
         hash_type: HashType,
-        advanced_attributes: bool,
     ) -> anyhow::Result<bool> {
         if !self
-            .standard_compare(
-                task_id,
-                source.clone(),
-                destination.clone(),
-                advanced_attributes,
-            )
+            .standard_compare(task_id, source.clone(), destination.clone())
             .await?
         {
             return Ok(false);

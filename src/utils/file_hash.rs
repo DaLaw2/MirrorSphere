@@ -1,8 +1,7 @@
-use digest::{Digest, HashMarker};
+use digest::{Digest, DynDigest, HashMarker};
 use md5::Md5;
 use std::fs::File;
 use std::io::Read;
-use blake3::Hash;
 use blake2::{Blake2b512, Blake2s256};
 use sha2::Sha256;
 use crate::utils::log_entry::io::IOEntry;
@@ -37,7 +36,7 @@ pub fn blake3(file: File) -> anyhow::Result<Vec<u8>> {
     file_hash(file, hasher)
 }
 
-fn file_hash(mut file: File, mut hasher: impl HashMarker) -> anyhow::Result<Vec<u8>> {
+fn file_hash(mut file: File, mut hasher: impl HashMarker + DynDigest) -> anyhow::Result<Vec<u8>> {
     let mut buffer = [0; 65536];
     loop {
         let bytes_read = file.read(&mut buffer)
@@ -47,5 +46,5 @@ fn file_hash(mut file: File, mut hasher: impl HashMarker) -> anyhow::Result<Vec<
         }
         hasher.update(&buffer[..bytes_read]);
     }
-    Ok(hasher.finalize().to_vec())
+    Ok(Box::new(hasher).finalize().to_vec())
 }

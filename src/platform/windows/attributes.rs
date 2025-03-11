@@ -13,7 +13,7 @@ pub struct Attributes {
     pub change_time: SystemTime,
 }
 
-pub struct PermissionAttributes {
+pub struct Permissions {
     pub owner: Vec<u8>,
     pub access_control_list: ACL,
 }

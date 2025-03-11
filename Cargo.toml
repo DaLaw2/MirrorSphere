@@ -27,7 +27,7 @@ sha2 = "0.10.8"
 blake2 = "0.10.6"
 digest = "0.10.7"
 md-5 = "0.10.6"
-
+chrono = "0.4.40"
 
 [dependencies.blake3]
 version = "1.6.1"
@@ -45,7 +45,7 @@ version = "0.3.0"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.60.0"
-features = ["Win32", "Win32_Security", "Win32_Storage", "Win32_System", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_Security_Authorization"]
+features = ["Win32", "Win32_Security", "Win32_Storage", "Win32_System", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_Security_Authorization", "Win32_System_Time"]
 
 [target.'cfg(windows)'.dependencies.windows-sys]
 version = "0.59.0"

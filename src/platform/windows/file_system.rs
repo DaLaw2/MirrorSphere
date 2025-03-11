@@ -1,27 +1,32 @@
-use std::os::windows::ffi::OsStrExt;
 use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
 use crate::model::event::io::permission::GetPermissionEvent;
-use crate::platform::attributes::{Attributes, PermissionAttributes};
+use crate::platform::attributes::{Attributes, Permissions};
+use crate::platform::windows::helper::system_time_to_file_time;
 use crate::utils::log_entry::io::IOEntry;
+use async_trait::async_trait;
+use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::MetadataExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
-use tracing_subscriber::fmt::time::SystemTime;
 use uuid::Uuid;
 use windows::core::imp::CloseHandle;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{GENERIC_ALL, GENERIC_WRITE};
-use windows_core::imp::bindings::HANDLE
-use windows::Win32::Storage::FileSystem::{CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_MODE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING};
+use windows::Win32::Foundation::GENERIC_ALL;
+use windows::Win32::Storage::FileSystem::{
+    CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
+    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
+    FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+};
 
 #[cfg(target_os = "windows")]
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
 }
 
+#[async_trait]
 #[cfg(target_os = "windows")]
 impl FileSystemTrait for FileSystem {
     fn new(semaphore: Arc<Semaphore>) -> Self {
@@ -33,24 +38,28 @@ impl FileSystemTrait for FileSystem {
     }
 
     async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes> {
-        let metadata = tokio::fs::metadata(path)
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
+
+        let metadata = tokio::fs::metadata(&path)
             .await
             .map_err(|_| IOEntry::GetMetadataFailed)?;
 
         let (read_only, hidden, archive, normal, index) = {
             let attributes = metadata.file_attributes();
             (
-                (attributes & 0x1) != 0,
-                (attributes & 0x2) != 0,
-                (attributes & 0x32) != 0,
-                (attributes & 0x128) != 0,
-                (attributes & 0x8192) != 0,
+                (attributes & FILE_ATTRIBUTE_READONLY.0) != 0,
+                (attributes & FILE_ATTRIBUTE_HIDDEN.0) != 0,
+                (attributes & FILE_ATTRIBUTE_ARCHIVE.0) != 0,
+                (attributes & FILE_ATTRIBUTE_NORMAL.0) != 0,
+                (attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0) != 0,
             )
         };
 
-        let creation_time = metadata
-            .created()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+        let creation_time = metadata.created().map_err(|_| IOEntry::GetMetadataFailed)?;
         let last_access_time = metadata
             .accessed()
             .map_err(|_| IOEntry::GetMetadataFailed)?;
@@ -81,34 +90,27 @@ impl FileSystemTrait for FileSystem {
         path: PathBuf,
         attributes: Attributes,
     ) -> anyhow::Result<()> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOEntry::SemaphoreClosed)?;
+
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
         let mut file_attributes: u32 = 0;
-
-        if attributes.normal {
-            file_attributes = FILE_ATTRIBUTE_NORMAL.0;
-        } else {
-            if attributes.read_only {
-                file_attributes |= FILE_ATTRIBUTE_READONLY.0;
-            }
-            if attributes.hidden {
-                file_attributes |= FILE_ATTRIBUTE_HIDDEN.0;
-            }
-            if attributes.archive {
-                file_attributes |= FILE_ATTRIBUTE_ARCHIVE.0;
-            }
-            if !attributes.index {
-                file_attributes |= FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0;
-            }
-        }
+        file_attributes |= FILE_ATTRIBUTE_READONLY.0;
+        file_attributes |= FILE_ATTRIBUTE_HIDDEN.0;
+        file_attributes |= FILE_ATTRIBUTE_ARCHIVE.0;
+        file_attributes |= FILE_ATTRIBUTE_NORMAL.0;
+        file_attributes |= FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0;
 
         unsafe {
-            if !SetFileAttributesW(
+            SetFileAttributesW(
                 PCWSTR(file_path_wild.as_ptr()),
-                FILE_FLAGS_AND_ATTRIBUTES(file_attributes)
-            ).is_err() {
-                return Err(IOEntry::SetMetadataFailed.into());
-            }
+                FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
+            )
+            .map_err(|_| IOEntry::SetMetadataFailed)?;
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -118,24 +120,23 @@ impl FileSystemTrait for FileSystem {
                 OPEN_EXISTING,
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
                 None,
-            ).map_err(|_| IOEntry::SetMetadataFailed)?;
+            )
+            .map_err(|_| IOEntry::SetMetadataFailed)?;
 
-            // 設定檔案時間屬性
-            let creation_filetime = system_time_to_filetime(&attributes.creation_time)?;
-            let last_access_filetime = system_time_to_filetime(&attributes.last_access_time)?;
-            let change_filetime = system_time_to_filetime(&attributes.change_time)?;
+            let creation_filetime = system_time_to_file_time(attributes.creation_time)?;
+            let last_access_filetime = system_time_to_file_time(attributes.last_access_time)?;
+            let change_filetime = system_time_to_file_time(attributes.change_time)?;
 
-            if !SetFileTime(
+            let result = SetFileTime(
                 handle,
                 Some(&creation_filetime),
                 Some(&last_access_filetime),
                 Some(&change_filetime),
-            ).is_err() {
-                CloseHandle(handle);
-                return Err(IOEntry::SetMetadataFailed.into());
-            }
+            );
 
-            CloseHandle(handle);
+            CloseHandle(handle.0);
+
+            result.map_err(|_| IOEntry::SetMetadataFailed)?;
         }
 
         let event = SetAttributesEvent { task_id, path };
@@ -152,11 +153,7 @@ impl FileSystemTrait for FileSystem {
         todo!()
     }
 
-    async fn get_permission(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-    ) -> anyhow::Result<PermissionAttributes> {
+    async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
         let event = GetPermissionEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok()
@@ -165,7 +162,8 @@ impl FileSystemTrait for FileSystem {
     async fn set_permission(
         &self,
         task_id: Uuid,
-        permission: PermissionAttributes,
+        path: PathBuf,
+        permissions: Permissions,
     ) -> anyhow::Result<()> {
         let event = SetAttributesEvent { task_id, path };
         EventBus::publish(event).await?;
