@@ -13,6 +13,18 @@ pub struct Attributes {
     pub change_time: SystemTime,
 }
 
+impl PartialEq for Attributes {
+    fn eq(&self, other: &Self) -> bool {
+        self.read_only == other.read_only
+            && self.hidden == other.hidden
+            && self.archive == other.archive
+            && self.normal == other.normal
+            && self.index == other.index
+            && self.creation_time == other.creation_time
+            && self.last_access_time == other.last_access_time
+    }
+}
+
 pub struct Permissions {
     pub owner: Vec<u8>,
     pub access_control_list: ACL,
