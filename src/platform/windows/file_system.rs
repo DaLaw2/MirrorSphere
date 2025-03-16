@@ -191,6 +191,23 @@ impl FileSystemTrait for FileSystem {
 }
 
 impl FileSystem {
+    pub async fn get_advanced_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
+        let event = GetPermissionEvent { task_id, path };
+        EventBus::publish(event).await?;
+        Ok()
+    }
+
+    async fn set_advanced_permission(
+        &self,
+        task_id: Uuid,
+        path: PathBuf,
+        permissions: Permissions,
+    ) -> anyhow::Result<()> {
+        let event = SetAttributesEvent { task_id, path };
+        EventBus::publish(event).await?;
+        Ok(())
+    }
+
     fn get_owner_psid(path: PathBuf) -> anyhow::Result<Vec<u8>> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
