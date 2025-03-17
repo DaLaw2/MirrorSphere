@@ -1,12 +1,22 @@
+use crate::utils::log_entry::system::SystemEntry;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::ptr;
-use std::{env, io, mem};
-use windows_sys::Win32::System::Com::*;
-use windows_sys::Win32::UI::Shell::*;
-use windows_sys::Win32::UI::WindowsAndMessaging::*;
+use std::{env, mem};
+use windows::core::PCWSTR;
+use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
+use windows::Win32::Security::{
+    AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
+    SE_SECURITY_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
+};
+use windows::Win32::System::Com::{
+    CoInitializeEx, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE,
+};
+use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
+use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
 
-pub fn elevate() -> io::Result<()> {
+pub fn elevate() -> anyhow::Result<()> {
     let exe = env::current_exe()?;
     let args: Vec<String> = env::args().skip(1).collect();
     let params = args.join(" ");
@@ -21,27 +31,74 @@ pub fn elevate() -> io::Result<()> {
         .chain(Some(0))
         .collect::<Vec<_>>();
 
-    unsafe { win_runas(file.as_ptr(), params.as_ptr()) }
+    unsafe {
+        win_runas(file, params)?;
+        adjust_token_privileges()
+    }
 }
 
-unsafe fn win_runas(cmd: *const u16, args: *const u16) -> io::Result<()> {
+unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
     let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
-    let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
+    let mut verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
 
-    CoInitializeEx(
-        ptr::null(),
-        (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
-    );
+    if CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_err() {
+        Err(SystemEntry::RunAsAdminFailed)?
+    }
 
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.cbSize = size_of::<SHELLEXECUTEINFOW>() as _;
-    sei.lpVerb = verb.as_ptr();
-    sei.lpFile = cmd;
-    sei.lpParameters = args;
-    sei.nShow = SW_NORMAL;
+    sei.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+    sei.lpVerb = PCWSTR(verb.as_ptr());
+    sei.lpFile = PCWSTR(cmd.as_ptr());
+    sei.lpParameters = PCWSTR(args.as_ptr());
+    sei.nShow = SW_NORMAL.0;
 
-    if ShellExecuteExW(&mut sei) == 0 || sei.hProcess == ptr::null_mut() {
-        return Err(io::Error::last_os_error());
+    if ShellExecuteExW(&mut sei).is_err() || sei.hProcess.is_invalid() {
+        Err(SystemEntry::RunAsAdminFailed)?
+    }
+
+    Ok(())
+}
+
+unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
+    let mut token_handle: HANDLE = HANDLE::default();
+
+    OpenProcessToken(
+        GetCurrentProcess(),
+        TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+        &mut token_handle,
+    )
+    .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+
+    let mut luid: LUID = LUID {
+        LowPart: 0,
+        HighPart: 0,
+    };
+
+    LookupPrivilegeValueW(ptr::null(), SE_SECURITY_NAME, &mut luid)
+        .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+
+    let mut token_privilege = TOKEN_PRIVILEGES {
+        PrivilegeCount: 1,
+        Privileges: [LUID_AND_ATTRIBUTES {
+            Luid: luid,
+            Attributes: SE_PRIVILEGE_ENABLED,
+        }],
+    };
+
+    AdjustTokenPrivileges(
+        token_handle,
+        false,
+        Some(&mut token_privilege),
+        0,
+        None,
+        None,
+    )
+    .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+
+    CloseHandle(token_handle).map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+
+    if GetLastError().is_err() {
+        Err(SystemEntry::AdjustTokenPrivilegesFailed)?
     }
 
     Ok(())

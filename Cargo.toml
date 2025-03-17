@@ -15,7 +15,7 @@ tracing-appender = "0.2.3"
 fs4 = { version = "0.13.0", features = ["tokio"] }
 tokio = { version = "1.43.0", features = ["full"] }
 serde = { version = "1.0.218", features = ["derive"] }
-sqlx = { version = "0.8.3", features = [ "runtime-tokio", "sqlite", "uuid", "derive" ] }
+sqlx = { version = "0.8.3", features = ["runtime-tokio", "sqlite", "uuid", "derive"] }
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 serde_json = "1.0.139"
@@ -45,8 +45,8 @@ version = "0.3.0"
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "0.60.0"
-features = ["Win32", "Win32_Security", "Win32_Storage", "Win32_System", "Win32_Storage_FileSystem", "Win32_System_Memory", "Win32_Security_Authorization", "Win32_System_Time"]
-
-[target.'cfg(windows)'.dependencies.windows-sys]
-version = "0.59.0"
-features = ["Win32_UI_Shell", "Win32_Foundation", "Win32_Security", "Win32_System_Threading", "Win32_System_Registry", "Win32_System_Com", "Win32_UI_WindowsAndMessaging"]
+features = [
+    "Win32", "Win32_System", "Win32_System_Memory", "Win32_System_Threading", "Win32_System_Time", "Win32_System_Registry",
+    "Win32_System_Com", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage", "Win32_Storage_FileSystem",
+    "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"
+]

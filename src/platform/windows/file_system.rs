@@ -19,16 +19,9 @@ use tokio::task::spawn_blocking;
 use uuid::Uuid;
 use windows::core::imp::CloseHandle;
 use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{
-    LocalFree, ERROR_SUCCESS, FILETIME, GENERIC_ALL, HLOCAL, SYSTEMTIME,
-};
-use windows::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SE_FILE_OBJECT, SE_OBJECT_TYPE,
-};
-use windows::Win32::Security::{
-    CopySid, GetLengthSid, LookupAccountSidW, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR,
-    PSID, SID_NAME_USE,
-};
+use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, FILETIME, GENERIC_ALL, HANDLE, HLOCAL, SYSTEMTIME};
+use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, GetSecurityInfo, SetSecurityInfo, SE_FILE_OBJECT, SE_OBJECT_TYPE};
+use windows::Win32::Security::{CopySid, GetLengthSid, LookupAccountSidW, ACL, DACL_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PROTECTED_SACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SACL_SECURITY_INFORMATION, SID_NAME_USE};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
@@ -125,7 +118,7 @@ impl FileSystemTrait for FileSystem {
                 PCWSTR(file_path_wild.as_ptr()),
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+                .map_err(|_| IOEntry::SetMetadataFailed)?;
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -136,7 +129,7 @@ impl FileSystemTrait for FileSystem {
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
                 None,
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+                .map_err(|_| IOEntry::SetMetadataFailed)?;
 
             let creation_filetime = Self::system_time_to_file_time(attributes.creation_time)?;
             let last_access_filetime = Self::system_time_to_file_time(attributes.last_access_time)?;
@@ -153,8 +146,8 @@ impl FileSystemTrait for FileSystem {
 
             result.map_err(|_| IOEntry::SetMetadataFailed)?;
         })
-        .await
-        .map_err(|_| SystemEntry::ThreadPanic)?;
+            .await
+            .map_err(|_| SystemEntry::ThreadPanic)?;
 
         let event = SetAttributesEvent { task_id, path };
         EventBus::publish(event).await?;
@@ -208,98 +201,64 @@ impl FileSystem {
         Ok(())
     }
 
-    fn get_owner_psid(path: PathBuf) -> anyhow::Result<Vec<u8>> {
-        let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-
-        let mut p_sid = PSID::default();
-        let mut p_security_descriptor: PSECURITY_DESCRIPTOR = PSECURITY_DESCRIPTOR::default();
+    fn get_security_descriptor(
+        handle: HANDLE,
+        security_info: OBJECT_SECURITY_INFORMATION,
+        object_type: SE_OBJECT_TYPE,
+    ) -> anyhow::Result<PSECURITY_DESCRIPTOR> {
+        let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
 
         unsafe {
-            let result = GetNamedSecurityInfoW(
-                PCWSTR(file_path_wild.as_ptr()),
-                SE_OBJECT_TYPE(SE_FILE_OBJECT.0),
-                OWNER_SECURITY_INFORMATION,
-                Some(&mut p_sid),
+            let status = GetSecurityInfo(
+                handle,
+                object_type,
+                security_info,
                 None,
                 None,
                 None,
-                &mut p_security_descriptor,
+                None,
+                Some(&mut security_descriptor),
             );
 
-            if result != ERROR_SUCCESS {
-                Err(IOEntry::GetMetadataFailed)?
+            if status.is_err() {
+                Err(IOEntry::GetMetadataFailed)?;
             }
 
-            let sid_len = GetLengthSid(p_sid);
-
-            let mut sid_copy = vec![0u8; sid_len as usize];
-
-            let result = CopySid(sid_len, PSID(sid_copy.as_mut_ptr() as *mut _), p_sid);
-            let security_descriptor_handle = HLOCAL(p_security_descriptor.0 as *mut _);
-            LocalFree(Some(security_descriptor_handle));
-
-            result.map_err(|_| IOEntry::GetMetadataFailed)?;
-
-            Ok(sid_copy)
+            Ok(security_descriptor)
         }
     }
 
-    fn get_owner_name(path: PathBuf) -> anyhow::Result<String> {
-        let sid_vec = Self::get_owner_psid(path)?;
-
+    fn convert_inherited_to_explicit(
+        handle: HANDLE,
+        object_type: SE_OBJECT_TYPE,
+        security_info: OBJECT_SECURITY_INFORMATION,
+    ) -> anyhow::Result<()> {
         unsafe {
-            let p_sid = PSID(sid_vec.as_ptr() as *mut _);
+            let security_descriptor = Self::get_security_descriptor(handle, security_info, object_type)?;
 
-            let mut name_size: u32 = 0;
-            let mut domain_size: u32 = 0;
-            let mut sid_type = SID_NAME_USE::default();
-
-            let _ = LookupAccountSidW(
-                PCWSTR::null(),
-                p_sid,
-                None,
-                &mut name_size,
-                None,
-                &mut domain_size,
-                &mut sid_type,
-            );
-
-            let mut name_buffer = vec![0u16; name_size as usize];
-            let mut domain_buffer = vec![0u16; domain_size as usize];
-
-            let lookup_result = LookupAccountSidW(
-                PCWSTR::null(),
-                p_sid,
-                Some(PWSTR(name_buffer.as_mut_ptr())),
-                &mut name_size,
-                Some(PWSTR(domain_buffer.as_mut_ptr())),
-                &mut domain_size,
-                &mut sid_type,
-            );
-
-            if lookup_result.is_err() {
-                Err(IOEntry::GetMetadataFailed)?
-            }
-
-            if name_size > 0 {
-                name_buffer.truncate(name_size as usize - 1);
-            }
-            if domain_size > 0 {
-                domain_buffer.truncate(domain_size as usize - 1);
-            }
-
-            let account_name = OsString::from_wide(&name_buffer)
-                .to_string_lossy()
-                .to_string();
-            let domain_name = OsString::from_wide(&domain_buffer)
-                .to_string_lossy()
-                .to_string();
-
-            if domain_name.is_empty() {
-                Ok(account_name)
+            let protect_flags = if security_info.contains(DACL_SECURITY_INFORMATION) {
+                PROTECTED_DACL_SECURITY_INFORMATION
+            } else if security_info.contains(SACL_SECURITY_INFORMATION) {
+                PROTECTED_SACL_SECURITY_INFORMATION
             } else {
-                Ok(format!("{}\\{}", domain_name, account_name))
+                Err(SystemEntry::UnknownError)?
+            };
+
+            let status = SetSecurityInfo(
+                handle,
+                object_type,
+                security_info | protect_flags,
+                None,
+                None,
+                None,
+                None,
+            );
+
+            if status.is_err() {
+                return Err(IOEntry::GetMetadataFailed)?;
             }
+
+            Ok(())
         }
     }
 

@@ -6,6 +6,8 @@ pub enum SystemEntry {
     ReRunAsAdmin,
     #[error("Unable to run as administrator")]
     RunAsAdminFailed,
+    #[error("Failed to adjust token privileges")]
+    AdjustTokenPrivilegesFailed,
     #[error("Online now")]
     Online,
     #[error("Initializing")]
@@ -24,4 +26,6 @@ pub enum SystemEntry {
     InternalError,
     #[error("Unknown error")]
     ThreadPanic,
+    #[error("Unknown error")]
+    UnknownError,
 }
