@@ -69,7 +69,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
     )
     .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
 
-    let mut luid: LUID = LUID {
+    let mut luid = LUID {
         LowPart: 0,
         HighPart: 0,
     };

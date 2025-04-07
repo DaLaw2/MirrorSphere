@@ -1,3 +1,14 @@
-pub struct Attributes {}
+#[derive(Clone, PartialEq, Eq)]
+pub struct Attributes {
 
-pub struct AdvancedAttributes {}
+}
+
+impl PartialEq for Attributes {
+    fn eq(&self, _: &Attributes) -> bool {
+        true
+    }
+}
+
+pub struct Permissions {
+
+}

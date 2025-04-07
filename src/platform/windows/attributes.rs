@@ -1,5 +1,6 @@
 use std::time::SystemTime;
-use windows_acl::acl::ACL;
+use windows::Win32::Security::{ACL, PSID};
+use crate::platform::raii_guard::SecurityDescriptorGuard;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Attributes {
@@ -26,13 +27,9 @@ impl PartialEq for Attributes {
 }
 
 pub struct Permissions {
-    pub owner: Option<Vec<u8>>,
-    pub dacl: Option<Vec<u8>>,
-}
-
-pub struct AdvancedPermissions {
-    pub owner: Option<Vec<u8>>,
-    pub dacl: Option<Vec<u8>>,
-    pub primary_group: Option<Vec<u8>>,
-    pub sacl: Option<Vec<u8>>,
+    pub owner: PSID,
+    pub primary_group: PSID,
+    pub dacl: *mut ACL,
+    pub sacl: *mut ACL,
+    pub security_descriptor: SecurityDescriptorGuard,
 }

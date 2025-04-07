@@ -1,5 +1,10 @@
+use crate::interface::file_system::FileSystemTrait;
+use crate::platform::attributes::{Attributes, Permissions};
+use async_trait::async_trait;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Semaphore;
+use uuid::Uuid;
 
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
