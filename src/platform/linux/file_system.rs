@@ -11,7 +11,6 @@ pub struct FileSystem {
 }
 
 #[async_trait]
-#[cfg(target_os = "linux")]
 impl FileSystemTrait for FileSystem {
     fn new(semaphore: Arc<Semaphore>) -> Self {
         FileSystem { semaphore }

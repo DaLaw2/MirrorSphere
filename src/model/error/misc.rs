@@ -1,7 +1,8 @@
 use crate::r#macro::loggable::loggable;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum MiscError {
-
+loggable! {
+    MiscError {
+        #[error("Failed to free object")]
+        ObjectFreeFailed: tracing::Level::ERROR,
+    }
 }

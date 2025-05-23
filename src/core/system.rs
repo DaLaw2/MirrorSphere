@@ -6,7 +6,6 @@ use crate::platform::elevate::elevate;
 use crate::model::log::system::SystemLog;
 use crate::utils::logging::Logging;
 use privilege::user::privileged;
-use tracing::info;
 use crate::model::error::system::SystemError;
 
 pub struct System;
@@ -29,7 +28,7 @@ impl System {
     }
 
     pub async fn run() {
-        info!("{}", SystemLog::Online);
+        SystemLog::Online.log();
     }
 
     pub async fn terminate() {

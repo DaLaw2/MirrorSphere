@@ -1,5 +1,8 @@
 use crate::r#macro::loggable::loggable;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum EventError {}
+loggable! {
+    EventError {
+        #[error("Placeholder")]
+        Placeholder: tracing::Level::INFO,
+    }
+}

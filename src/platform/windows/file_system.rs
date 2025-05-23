@@ -1,11 +1,11 @@
 use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
+use crate::model::error::io::IOError;
+use crate::model::error::system::SystemError;
 use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
 use crate::model::event::io::permission::GetPermissionEvent;
 use crate::platform::attributes::{Attributes, Permissions};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
-use crate::model::log::io::IOLog;
-use crate::model::log::system::SystemLog;
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Timelike};
 use std::os::windows::ffi::OsStrExt;
@@ -24,21 +24,17 @@ use windows::Win32::Security::Authorization::{
 };
 use windows::Win32::Security::{ACL, BACKUP_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
-    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
-    FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, SetFileAttributesW, SetFileTime, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Time::SystemTimeToFileTime;
-use crate::model::error::io::IOError;
-use crate::model::error::system::SystemError;
+use crate::model::error::misc::MiscError;
 
-#[cfg(target_os = "windows")]
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
 }
 
 #[async_trait]
-#[cfg(target_os = "windows")]
 impl FileSystemTrait for FileSystem {
     fn new(semaphore: Arc<Semaphore>) -> Self {
         FileSystem { semaphore }
@@ -59,16 +55,7 @@ impl FileSystemTrait for FileSystem {
             .await
             .map_err(|_| IOError::GetMetadataFailed)?;
 
-        let (read_only, hidden, archive, normal, index) = {
-            let attributes = metadata.file_attributes();
-            (
-                (attributes & FILE_ATTRIBUTE_READONLY.0) != 0,
-                (attributes & FILE_ATTRIBUTE_HIDDEN.0) != 0,
-                (attributes & FILE_ATTRIBUTE_ARCHIVE.0) != 0,
-                (attributes & FILE_ATTRIBUTE_NORMAL.0) != 0,
-                (attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0) != 0,
-            )
-        };
+        let attributes = metadata.file_attributes();
 
         let creation_time = metadata
             .created()
@@ -81,11 +68,7 @@ impl FileSystemTrait for FileSystem {
             .map_err(|_| IOError::GetMetadataFailed)?;
 
         let attributes = Attributes {
-            read_only,
-            hidden,
-            archive,
-            normal,
-            index,
+            attributes,
             creation_time,
             last_access_time,
             change_time,
@@ -111,12 +94,7 @@ impl FileSystemTrait for FileSystem {
 
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-        let mut file_attributes: u32 = 0;
-        file_attributes |= FILE_ATTRIBUTE_READONLY.0;
-        file_attributes |= FILE_ATTRIBUTE_HIDDEN.0;
-        file_attributes |= FILE_ATTRIBUTE_ARCHIVE.0;
-        file_attributes |= FILE_ATTRIBUTE_NORMAL.0;
-        file_attributes |= FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0;
+        let file_attributes = attributes.attributes;
 
         spawn_blocking(move || unsafe {
             SetFileAttributesW(
@@ -147,12 +125,10 @@ impl FileSystemTrait for FileSystem {
                 Some(&change_filetime),
             );
 
-            CloseHandle(handle)
-                .map_err(|_| SystemError::ObjectFreeFailed)?;
+            CloseHandle(handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 
-            result
-                .map_err(|_| IOError::SetMetadataFailed)?;
-            
+            result.map_err(|_| IOError::SetMetadataFailed)?;
+
             Ok::<(), anyhow::Error>(())
         })
         .await
