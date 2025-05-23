@@ -1,7 +1,6 @@
 use crate::utils::log_entry::system::SystemEntry;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use std::ptr;
 use std::{env, mem};
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
@@ -39,7 +38,7 @@ pub fn elevate() -> anyhow::Result<()> {
 
 unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
     let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
-    let mut verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
+    let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
 
     if CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_err() {
         Err(SystemEntry::RunAsAdminFailed)?
@@ -74,7 +73,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
         HighPart: 0,
     };
 
-    LookupPrivilegeValueW(ptr::null(), SE_SECURITY_NAME, &mut luid)
+    LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
         .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
 
     let mut token_privilege = TOKEN_PRIVILEGES {

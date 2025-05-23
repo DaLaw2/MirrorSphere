@@ -8,10 +8,8 @@ use crate::utils::log_entry::io::IOEntry;
 use crate::utils::log_entry::system::SystemEntry;
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Timelike};
-use futures::TryFutureExt;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::MetadataExt;
-use std::os::windows::prelude::*;
 use std::path::PathBuf;
 use std::ptr;
 use std::sync::Arc;
@@ -19,16 +17,12 @@ use std::time::SystemTime;
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
 use uuid::Uuid;
-use windows::core::imp::CloseHandle;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{FILETIME, GENERIC_ALL, SYSTEMTIME};
+use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_ALL, SYSTEMTIME};
 use windows::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
 };
-use windows::Win32::Security::{
-    ACL, BACKUP_SECURITY_INFORMATION
-    , PSECURITY_DESCRIPTOR, PSID,
-};
+use windows::Win32::Security::{ACL, BACKUP_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
     FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
@@ -74,7 +68,9 @@ impl FileSystemTrait for FileSystem {
             )
         };
 
-        let creation_time = metadata.created().map_err(|_| IOEntry::GetMetadataFailed)?;
+        let creation_time = metadata
+            .created()
+            .map_err(|_| IOEntry::GetMetadataFailed)?;
         let last_access_time = metadata
             .accessed()
             .map_err(|_| IOEntry::GetMetadataFailed)?;
@@ -149,12 +145,16 @@ impl FileSystemTrait for FileSystem {
                 Some(&change_filetime),
             );
 
-            CloseHandle(handle.0);
+            CloseHandle(handle)
+                .map_err(|_| SystemEntry::ObjectFreeFailed)?;
 
-            result.map_err(|_| IOEntry::SetMetadataFailed)?;
+            result
+                .map_err(|_| IOEntry::SetMetadataFailed)?;
+            
+            Ok::<(), anyhow::Error>(())
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)?;
+        .map_err(|_| SystemEntry::ThreadPanic)??;
 
         let event = SetAttributesEvent { task_id, path };
         EventBus::publish(event).await?;
@@ -175,14 +175,14 @@ impl FileSystemTrait for FileSystem {
     async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-        let security_info = BACKUP_SECURITY_INFORMATION;
-        let mut owner = PSID::default();
-        let mut primary_group = PSID::default();
-        let mut dacl: *mut ACL = ptr::null_mut();
-        let mut sacl: *mut ACL = ptr::null_mut();
-        let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
+        let permission = spawn_blocking(move || unsafe {
+            let security_info = BACKUP_SECURITY_INFORMATION;
+            let mut owner = PSID::default();
+            let mut primary_group = PSID::default();
+            let mut dacl: *mut ACL = ptr::null_mut();
+            let mut sacl: *mut ACL = ptr::null_mut();
+            let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
 
-        unsafe {
             if GetNamedSecurityInfoW(
                 PCWSTR(file_path_wild.as_ptr()),
                 SE_FILE_OBJECT,
@@ -197,15 +197,18 @@ impl FileSystemTrait for FileSystem {
             {
                 Err(IOEntry::GetMetadataFailed)?;
             }
-        }
 
-        let permission = Permissions {
-            owner,
-            primary_group,
-            dacl,
-            sacl,
-            security_descriptor: SecurityDescriptorGuard::new(security_descriptor),
-        };
+            Ok::<Permissions, anyhow::Error>(Permissions {
+                owner,
+                primary_group,
+                dacl,
+                sacl,
+                security_descriptor: SecurityDescriptorGuard::new(security_descriptor),
+            })
+        })
+        .await
+        .map_err(|_| SystemEntry::ThreadPanic)??;
+
         let event = GetPermissionEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(permission)

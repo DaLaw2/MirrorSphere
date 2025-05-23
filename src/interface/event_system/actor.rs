@@ -1,3 +1,1 @@
-use crate::interface::ThreadSafe;
-
-pub trait Actor: ThreadSafe {}
+pub trait Actor: Send + Sync + 'static {}

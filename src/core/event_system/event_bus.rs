@@ -3,7 +3,6 @@ use crate::core::event_system::listener_group::ListenerGroup;
 use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
-use crate::interface::ThreadSafe;
 use crate::utils::log_entry::system::SystemEntry;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
@@ -12,7 +11,7 @@ use std::sync::OnceLock;
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
 
 pub struct EventBus {
-    listeners: DashMap<TypeId, Box<dyn Any + ThreadSafe>>,
+    listeners: DashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
 }
 
 impl EventBus {
@@ -28,7 +27,7 @@ impl EventBus {
 
     pub async fn subscribe<A: Actor, E: Event>(
         actor: &ActorRef<A>,
-        handler: impl EventHandler<A, E> + ThreadSafe,
+        handler: impl EventHandler<A, E> + Send + Sync + 'static,
     ) -> anyhow::Result<()> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();

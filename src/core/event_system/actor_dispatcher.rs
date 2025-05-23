@@ -3,16 +3,15 @@ use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::dispatcher::Dispatcher;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
-use crate::interface::ThreadSafe;
 use async_trait::async_trait;
 
 pub struct ActorDispatcher<A: Actor, E: Event> {
     actor: ActorRef<A>,
-    handler: Box<dyn EventHandler<A, E> + ThreadSafe>,
+    handler: Box<dyn EventHandler<A, E> + Send + Sync + 'static>,
 }
 
 impl<A: Actor, E: Event> ActorDispatcher<A, E> {
-    pub fn new(actor: ActorRef<A>, handler: Box<dyn EventHandler<A, E> + ThreadSafe>) -> Self {
+    pub fn new(actor: ActorRef<A>, handler: Box<dyn EventHandler<A, E> + Send + Sync + 'static>) -> Self {
         Self { actor, handler }
     }
 }

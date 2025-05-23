@@ -6,7 +6,7 @@ use crate::utils::log_entry::system::SystemEntry;
 use sqlx::SqlitePool;
 use std::ops::Deref;
 use std::sync::OnceLock;
-use tracing::{error, info, trace};
+use tracing::{info, trace};
 
 static DATABASE_MANAGER: OnceLock<DatabaseManager> = OnceLock::new();
 

@@ -1,23 +1,32 @@
-use thiserror::Error;
+use crate::define_log_entries;
 
-#[derive(Error, Debug)]
-pub enum IOEntry {
-    #[error("Semaphore has been closed")]
-    SemaphoreClosed,
-    #[error("Create directory failed")]
-    CreateDirectoryFailed,
-    #[error("Read directory failed")]
-    ReadDirectoryFailed,
-    #[error("Read file failed")]
-    ReadFileFailed,
-    #[error("Copy file failed")]
-    CopyFileFailed,
-    #[error("Delete directory failed")]
-    DeleteDirectoryFailed,
-    #[error("Delete file failed")]
-    DeleteFileFailed,
-    #[error("Get file metadata failed")]
-    GetMetadataFailed,
-    #[error("Set file metadata failed")]
-    SetMetadataFailed,
+define_log_entries! {
+    IOEntry {
+        #[error("Semaphore has been closed")]
+        SemaphoreClosed: tracing::Level::ERROR,
+
+        #[error("Failed to create directory")]
+        CreateDirectoryFailed: tracing::Level::ERROR,
+
+        #[error("Failed to read directory")]
+        ReadDirectoryFailed: tracing::Level::ERROR,
+
+        #[error("Failed to read file")]
+        ReadFileFailed: tracing::Level::ERROR,
+
+        #[error("Failed to copy file")]
+        CopyFileFailed: tracing::Level::ERROR,
+
+        #[error("Failed to delete directory")]
+        DeleteDirectoryFailed: tracing::Level::ERROR,
+
+        #[error("Failed to delete file")]
+        DeleteFileFailed: tracing::Level::ERROR,
+
+        #[error("Failed to get file metadata")]
+        GetMetadataFailed: tracing::Level::ERROR,
+
+        #[error("Failed to set file metadata")]
+        SetMetadataFailed: tracing::Level::ERROR,
+    }
 }

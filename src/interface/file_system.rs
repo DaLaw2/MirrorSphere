@@ -206,8 +206,10 @@ pub trait FileSystemTrait {
             .await
             .map_err(|_| IOEntry::SemaphoreClosed)?;
 
+        let path_clone = path.clone();
         let hash = spawn_blocking(move || {
-            let file = std::fs::File::open(&path)?;
+            let path = path_clone;
+            let file = std::fs::File::open(path)?;
             match hash_type {
                 HashType::MD5 => md5(file),
                 HashType::SHA3 => sha3(file),

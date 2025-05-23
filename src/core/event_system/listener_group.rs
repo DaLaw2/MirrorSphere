@@ -4,11 +4,10 @@ use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::dispatcher::Dispatcher;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
-use crate::interface::ThreadSafe;
 use futures::future;
 
 pub struct ListenerGroup<E: Event> {
-    dispatchers: Vec<Box<dyn Dispatcher<E> + ThreadSafe>>,
+    dispatchers: Vec<Box<dyn Dispatcher<E> + Send + Sync + 'static>>,
 }
 
 impl<E: Event> ListenerGroup<E> {
@@ -21,7 +20,7 @@ impl<E: Event> ListenerGroup<E> {
     pub fn subscribe<A: Actor>(
         &mut self,
         actor: ActorRef<A>,
-        handler: impl EventHandler<A, E> + ThreadSafe,
+        handler: impl EventHandler<A, E> + Send + Sync + 'static,
     ) {
         let handler = Box::new(handler);
         let actor_dispatcher = ActorDispatcher::new(actor, handler);

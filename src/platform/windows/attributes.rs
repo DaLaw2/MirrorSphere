@@ -2,7 +2,7 @@ use std::time::SystemTime;
 use windows::Win32::Security::{ACL, PSID};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Eq)]
 pub struct Attributes {
     pub read_only: bool,
     pub hidden: bool,
@@ -33,3 +33,5 @@ pub struct Permissions {
     pub sacl: *mut ACL,
     pub security_descriptor: SecurityDescriptorGuard,
 }
+
+unsafe impl Send for Permissions {}

@@ -28,9 +28,9 @@ pub enum HashType {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComparisonMode {
-    // Compare size and modify time and regular file attr
+    // Compare size and modify time
     Standard,
-    // Standard + compare file checksum
+    // Standard + regular file attr + compare file checksum
     Thorough(HashType),
 }
 

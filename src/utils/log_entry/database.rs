@@ -1,15 +1,20 @@
-use thiserror::Error;
+use crate::utils::log_entry::define_log_entries;
 
-#[derive(Error, Debug)]
-pub enum DatabaseEntry {
-    #[error("Failed to create database")]
-    CreateDatabaseFailed,
-    #[error("Connect to database successfully")]
-    DatabaseConnectSuccess,
-    #[error("Failed to connect database")]
-    DatabaseConnectFailed,
-    #[error("Lock database failed")]
-    LockDatabaseFailed,
-    #[error("Unlock database failed")]
-    UnlockDatabaseFailed,
+define_log_entries! {
+    DatabaseEntry {
+        #[error("Failed to create database")]
+        CreateDatabaseFailed: tracing::Level::ERROR,
+
+        #[error("Connected to database successfully")]
+        DatabaseConnectSuccess: tracing::Level::INFO,
+
+        #[error("Failed to connect to database")]
+        DatabaseConnectFailed: tracing::Level::ERROR,
+
+        #[error("Failed to lock database")]
+        LockDatabaseFailed: tracing::Level::ERROR,
+
+        #[error("Failed to unlock database")]
+        UnlockDatabaseFailed: tracing::Level::ERROR,
+    }
 }

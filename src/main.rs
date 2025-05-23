@@ -1,6 +1,3 @@
-#![feature(file_lock)]
-#![feature(trait_alias)]
-
 use crate::core::system::System;
 
 mod core;
