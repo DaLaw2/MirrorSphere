@@ -1,7 +1,7 @@
-use crate::define_log_entries;
+use crate::r#macro::loggable::loggable;
 
-define_log_entries! {
-    SystemEntry {
+loggable! {
+    SystemError {
         #[error("Rerun the program as administrator")]
         ReRunAsAdmin: tracing::Level::WARN,
 
@@ -13,21 +13,6 @@ define_log_entries! {
 
         #[error("Failed to free object")]
         ObjectFreeFailed: tracing::Level::ERROR,
-
-        #[error("Online now")]
-        Online: tracing::Level::INFO,
-
-        #[error("Initializing")]
-        Initializing: tracing::Level::INFO,
-
-        #[error("Initialization completed")]
-        InitializeComplete: tracing::Level::INFO,
-
-        #[error("Termination in process")]
-        Terminating: tracing::Level::INFO,
-
-        #[error("Termination completed")]
-        TerminateComplete: tracing::Level::INFO,
 
         #[error("Invalid configuration")]
         InvalidConfig: tracing::Level::ERROR,

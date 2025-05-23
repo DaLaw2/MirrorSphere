@@ -1,9 +1,10 @@
 use crate::model::config::{Config, ConfigTable};
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::system::SystemLog;
 use std::fs;
 use std::sync::{OnceLock, RwLock as SyncRwLock};
 use tokio::sync::RwLock as AsyncRwLock;
 use tracing::info;
+use crate::model::error::system::SystemError;
 
 static SYNC_CONFIG: OnceLock<SyncRwLock<Config>> = OnceLock::new();
 static ASYNC_CONFIG: OnceLock<AsyncRwLock<Config>> = OnceLock::new();
@@ -12,20 +13,20 @@ pub struct AppConfig;
 
 impl AppConfig {
     pub async fn initialization() {
-        info!("{}", SystemEntry::Initializing);
+        SystemLog::Initializing.log();
         let config = Self::load_config();
         SYNC_CONFIG.get_or_init(|| SyncRwLock::new(config.clone()));
         ASYNC_CONFIG.get_or_init(move || AsyncRwLock::new(config));
-        info!("{}", SystemEntry::InitializeComplete);
+        SystemLog::InitializeComplete.log();
     }
 
     fn load_config() -> Config {
         let config = match fs::read_to_string("./config.toml") {
             Ok(toml_string) => match toml::from_str::<ConfigTable>(&toml_string) {
                 Ok(config_table) => config_table.config,
-                Err(_) => panic!("{}", SystemEntry::InvalidConfig)
+                Err(_) => panic!("{}", SystemError::InvalidConfig)
             }
-            Err(_) => panic!("{}", SystemEntry::ConfigNotFound)
+            Err(_) => panic!("{}", SystemError::ConfigNotFound)
         };
         config
     }

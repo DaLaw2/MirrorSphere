@@ -4,7 +4,8 @@ use std::fs::File;
 use std::io::Read;
 use blake2::{Blake2b512, Blake2s256};
 use sha2::Sha256;
-use crate::utils::log_entry::io::IOEntry;
+use crate::model::error::io::IOError;
+use crate::model::log::io::IOLog;
 
 pub fn md5(file: File) -> anyhow::Result<Vec<u8>> {
     let hasher = Md5::new();
@@ -40,7 +41,7 @@ fn file_hash(mut file: File, mut hasher: impl HashMarker + DynDigest) -> anyhow:
     let mut buffer = [0; 65536];
     loop {
         let bytes_read = file.read(&mut buffer)
-            .map_err(|_| IOEntry::ReadFileFailed)?;
+            .map_err(|_| IOError::ReadFileFailed)?;
         if bytes_read == 0 {
             break;
         }

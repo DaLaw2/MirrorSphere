@@ -1,7 +1,7 @@
-use crate::define_log_entries;
+use crate::r#macro::loggable::loggable;
 
-define_log_entries! {
-    IOEntry {
+loggable! {
+    IOError {
         #[error("Semaphore has been closed")]
         SemaphoreClosed: tracing::Level::ERROR,
 

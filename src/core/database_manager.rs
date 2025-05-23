@@ -1,12 +1,13 @@
 use crate::interface::database_ops::DatabaseOpsTrait;
 use crate::platform::constants::*;
 use crate::platform::database_ops::DatabaseOps;
-use crate::utils::log_entry::database::DatabaseEntry;
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::database::DatabaseLog;
+use crate::model::log::system::SystemLog;
 use sqlx::SqlitePool;
 use std::ops::Deref;
 use std::sync::OnceLock;
 use tracing::{info, trace};
+use crate::model::error::database::DatabaseError;
 
 static DATABASE_MANAGER: OnceLock<DatabaseManager> = OnceLock::new();
 
@@ -17,28 +18,28 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn initialization() {
-        info!("{}", SystemEntry::Initializing);
+        info!("{}", SystemLog::Initializing);
         DatabaseOps::lock_database().await.unwrap();
         if !DatabaseOps::exist_database().await {
             DatabaseOps::create_database().await.unwrap();
         }
         let instance = match SqlitePool::connect(DATABASE_URL).await {
             Ok(pool) => {
-                info!("{}", DatabaseEntry::DatabaseConnectSuccess);
+                info!("{}", DatabaseLog::DatabaseConnectSuccess);
                 DatabaseManager {
                     ops: DatabaseOps::new(pool),
                 }
             }
             Err(err) => {
                 trace!(?err);
-                panic!("{}", DatabaseEntry::DatabaseConnectFailed);
+                panic!("{}", DatabaseError::DatabaseConnectFailed);
             }
         };
         if !instance.exist_table("BackupTasks").await {
             instance.create_backup_task_table().await.unwrap();
         }
         DATABASE_MANAGER.set(instance).unwrap();
-        info!("{}", SystemEntry::InitializeComplete);
+        info!("{}", SystemLog::InitializeComplete);
     }
 
     pub fn instance() -> &'static DatabaseManager {

@@ -1,12 +1,9 @@
-use crate::utils::log_entry::define_log_entries;
+use crate::r#macro::loggable::loggable;
 
-define_log_entries! {
-    DatabaseEntry {
+loggable! {
+    DatabaseError {
         #[error("Failed to create database")]
         CreateDatabaseFailed: tracing::Level::ERROR,
-
-        #[error("Connected to database successfully")]
-        DatabaseConnectSuccess: tracing::Level::INFO,
 
         #[error("Failed to connect to database")]
         DatabaseConnectFailed: tracing::Level::ERROR,

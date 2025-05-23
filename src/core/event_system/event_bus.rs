@@ -3,10 +3,11 @@ use crate::core::event_system::listener_group::ListenerGroup;
 use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::system::SystemLog;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::OnceLock;
+use crate::model::error::system::SystemError;
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
 
@@ -38,7 +39,7 @@ impl EventBus {
         let listeners = entry
             .value_mut()
             .downcast_mut::<ListenerGroup<E>>()
-            .ok_or(SystemEntry::InternalError)?;
+            .ok_or(SystemError::InternalError)?;
         listeners.subscribe(actor.clone(), handler);
         Ok(())
     }
@@ -50,7 +51,7 @@ impl EventBus {
             let listeners = listeners
                 .value()
                 .downcast_ref::<ListenerGroup<E>>()
-                .ok_or(SystemEntry::InternalError)?;
+                .ok_or(SystemError::InternalError)?;
             listeners.broadcast(event).await;
         }
         Ok(())

@@ -4,8 +4,8 @@ use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent
 use crate::model::event::io::permission::GetPermissionEvent;
 use crate::platform::attributes::{Attributes, Permissions};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
-use crate::utils::log_entry::io::IOEntry;
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::io::IOLog;
+use crate::model::log::system::SystemLog;
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Timelike};
 use std::os::windows::ffi::OsStrExt;
@@ -29,6 +29,8 @@ use windows::Win32::Storage::FileSystem::{
     FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Time::SystemTimeToFileTime;
+use crate::model::error::io::IOError;
+use crate::model::error::system::SystemError;
 
 #[cfg(target_os = "windows")]
 pub struct FileSystem {
@@ -51,11 +53,11 @@ impl FileSystemTrait for FileSystem {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
 
         let metadata = tokio::fs::metadata(&path)
             .await
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
 
         let (read_only, hidden, archive, normal, index) = {
             let attributes = metadata.file_attributes();
@@ -70,13 +72,13 @@ impl FileSystemTrait for FileSystem {
 
         let creation_time = metadata
             .created()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
         let last_access_time = metadata
             .accessed()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
         let change_time = metadata
             .modified()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
 
         let attributes = Attributes {
             read_only,
@@ -105,7 +107,7 @@ impl FileSystemTrait for FileSystem {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
 
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
@@ -121,7 +123,7 @@ impl FileSystemTrait for FileSystem {
                 PCWSTR(file_path_wild.as_ptr()),
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+            .map_err(|_| IOError::SetMetadataFailed)?;
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -132,7 +134,7 @@ impl FileSystemTrait for FileSystem {
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
                 None,
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+            .map_err(|_| IOError::SetMetadataFailed)?;
 
             let creation_filetime = Self::system_time_to_file_time(attributes.creation_time)?;
             let last_access_filetime = Self::system_time_to_file_time(attributes.last_access_time)?;
@@ -146,15 +148,15 @@ impl FileSystemTrait for FileSystem {
             );
 
             CloseHandle(handle)
-                .map_err(|_| SystemEntry::ObjectFreeFailed)?;
+                .map_err(|_| SystemError::ObjectFreeFailed)?;
 
             result
-                .map_err(|_| IOEntry::SetMetadataFailed)?;
+                .map_err(|_| IOError::SetMetadataFailed)?;
             
             Ok::<(), anyhow::Error>(())
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)??;
+        .map_err(|_| SystemError::ThreadPanic)??;
 
         let event = SetAttributesEvent { task_id, path };
         EventBus::publish(event).await?;
@@ -195,7 +197,7 @@ impl FileSystemTrait for FileSystem {
             )
             .is_err()
             {
-                Err(IOEntry::GetMetadataFailed)?;
+                Err(IOError::GetMetadataFailed)?;
             }
 
             Ok::<Permissions, anyhow::Error>(Permissions {
@@ -207,7 +209,7 @@ impl FileSystemTrait for FileSystem {
             })
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)??;
+        .map_err(|_| SystemError::ThreadPanic)??;
 
         let event = GetPermissionEvent { task_id, path };
         EventBus::publish(event).await?;
@@ -241,7 +243,7 @@ impl FileSystemTrait for FileSystem {
             )
             .is_err()
             {
-                Err(IOEntry::SetMetadataFailed)?;
+                Err(IOError::SetMetadataFailed)?;
             }
         }
 
@@ -257,10 +259,10 @@ impl FileSystem {
     fn system_time_to_file_time(system_time: SystemTime) -> anyhow::Result<FILETIME> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| SystemEntry::InternalError)?;
+            .map_err(|_| SystemError::InternalError)?;
 
         let epoch = DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
-            .ok_or_else(|| SystemEntry::InternalError)?;
+            .ok_or_else(|| SystemError::InternalError)?;
 
         let sys_time = SYSTEMTIME {
             wYear: epoch.year() as u16,
@@ -277,7 +279,7 @@ impl FileSystem {
 
         unsafe {
             SystemTimeToFileTime(&sys_time, &mut file_time)
-                .map_err(|_| SystemEntry::InternalError)?;
+                .map_err(|_| SystemError::InternalError)?;
             Ok(file_time)
         }
     }

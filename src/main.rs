@@ -6,6 +6,7 @@ mod model;
 mod platform;
 mod ui;
 mod utils;
+mod r#macro;
 
 #[tokio::main]
 async fn main() {

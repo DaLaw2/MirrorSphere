@@ -5,8 +5,8 @@ use crate::model::event::io::hash::*;
 use crate::model::task::HashType;
 use crate::platform::attributes::*;
 use crate::utils::file_hash::*;
-use crate::utils::log_entry::io::IOEntry;
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::io::IOLog;
+use crate::model::log::system::SystemLog;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,6 +16,8 @@ use tokio::task::spawn_blocking;
 use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
+use crate::model::error::io::IOError;
+use crate::model::error::system::SystemError;
 
 #[async_trait]
 pub trait FileSystemTrait {
@@ -28,14 +30,14 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
         let mut result = Vec::new();
         let reader = fs::read_dir(&path)
             .await
-            .map_err(|_| IOEntry::ReadDirectoryFailed)?;
+            .map_err(|_| IOError::ReadDirectoryFailed)?;
         let mut entries = ReadDirStream::new(reader);
         while let Some(entry) = entries.next().await {
-            let path = entry.map_err(|_| IOEntry::ReadFileFailed)?.path();
+            let path = entry.map_err(|_| IOError::ReadFileFailed)?.path();
             result.push(path);
         }
         let event = ListDirectoryEvent { task_id, path };
@@ -48,10 +50,10 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
         fs::create_dir_all(&path)
             .await
-            .map_err(|_| IOEntry::CreateDirectoryFailed)?;
+            .map_err(|_| IOError::CreateDirectoryFailed)?;
         let event = CreateDirectoryEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -62,10 +64,10 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
         fs::remove_dir_all(&path)
             .await
-            .map_err(|_| IOEntry::DeleteDirectoryFailed)?;
+            .map_err(|_| IOError::DeleteDirectoryFailed)?;
         let event = DeleteDirectoryEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -81,10 +83,10 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
         fs::copy(&source, &destination)
             .await
-            .map_err(|_| IOEntry::CopyFileFailed)?;
+            .map_err(|_| IOError::CopyFileFailed)?;
         let event = CopyFileEvent {
             task_id,
             source,
@@ -99,10 +101,10 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
         fs::remove_file(&path)
             .await
-            .map_err(|_| IOEntry::DeleteFileFailed)?;
+            .map_err(|_| IOError::DeleteFileFailed)?;
         let event = DeleteFileEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
@@ -150,24 +152,24 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
 
         let source_metadata = fs::metadata(&source)
             .await
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
         let destination_metadata = fs::metadata(&destination)
             .await
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
 
         if source_metadata.len() != destination_metadata.len() {
             return Ok(false);
         }
         let source_modified = source_metadata
             .modified()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
         let destination_modified = destination_metadata
             .modified()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed)?;
         if source_modified != destination_modified {
             return Ok(false);
         }
@@ -204,7 +206,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|_| IOError::SemaphoreClosed)?;
 
         let path_clone = path.clone();
         let hash = spawn_blocking(move || {
@@ -220,7 +222,7 @@ pub trait FileSystemTrait {
             }
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)??;
+        .map_err(|_| SystemError::ThreadPanic)??;
 
         let event = CalculateHashEvent { task_id, path };
         EventBus::publish(event).await?;

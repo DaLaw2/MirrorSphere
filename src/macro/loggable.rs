@@ -1,14 +1,7 @@
-pub mod database;
-pub mod event;
-pub mod io;
-pub mod misc;
-pub mod system;
-pub mod task;
-
-pub use crate::define_log_entries;
+pub use crate::loggable;
 
 #[macro_export]
-macro_rules! define_log_entries {
+macro_rules! loggable {
     (
         $enum_name:ident {
             $(

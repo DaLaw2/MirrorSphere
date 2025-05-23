@@ -1,4 +1,4 @@
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::system::SystemLog;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::{env, mem};
@@ -14,6 +14,7 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
+use crate::model::error::system::SystemError;
 
 pub fn elevate() -> anyhow::Result<()> {
     let exe = env::current_exe()?;
@@ -41,7 +42,7 @@ unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
     let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
 
     if CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_err() {
-        Err(SystemEntry::RunAsAdminFailed)?
+        Err(SystemError::RunAsAdminFailed)?
     }
 
     sei.fMask = SEE_MASK_NOCLOSEPROCESS;
@@ -52,7 +53,7 @@ unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
     sei.nShow = SW_NORMAL.0;
 
     if ShellExecuteExW(&mut sei).is_err() || sei.hProcess.is_invalid() {
-        Err(SystemEntry::RunAsAdminFailed)?
+        Err(SystemError::RunAsAdminFailed)?
     }
 
     Ok(())
@@ -66,7 +67,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
         TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
         &mut token_handle,
     )
-    .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+    .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
     let mut luid = LUID {
         LowPart: 0,
@@ -74,7 +75,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
     };
 
     LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
-        .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
     let mut token_privilege = TOKEN_PRIVILEGES {
         PrivilegeCount: 1,
@@ -92,12 +93,12 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
         None,
         None,
     )
-    .map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+    .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
-    CloseHandle(token_handle).map_err(|_| SystemEntry::AdjustTokenPrivilegesFailed)?;
+    CloseHandle(token_handle).map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
     if GetLastError().is_err() {
-        Err(SystemEntry::AdjustTokenPrivilegesFailed)?
+        Err(SystemError::AdjustTokenPrivilegesFailed)?
     }
 
     Ok(())

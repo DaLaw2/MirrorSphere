@@ -1,7 +1,7 @@
-use crate::define_log_entries;
+use crate::r#macro::loggable::loggable;
 
-define_log_entries! {
-    TaskEntry {
+loggable! {
+    TaskError {
         #[error("Task not found")]
         TaskNotFound: tracing::Level::ERROR,
     }

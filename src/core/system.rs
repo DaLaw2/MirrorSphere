@@ -3,38 +3,39 @@ use crate::core::database_manager::DatabaseManager;
 use crate::core::engine::Engine;
 use crate::core::io_manager::IOManager;
 use crate::platform::elevate::elevate;
-use crate::utils::log_entry::system::SystemEntry;
+use crate::model::log::system::SystemLog;
 use crate::utils::logging::Logging;
 use privilege::user::privileged;
 use tracing::info;
+use crate::model::error::system::SystemError;
 
 pub struct System;
 
 impl System {
     pub async fn initialize() {
         Logging::initialize().await;
-        info!("{}", SystemEntry::Initializing);
+        SystemLog::Initializing.log();
         if !privileged() {
-            info!("{}", SystemEntry::ReRunAsAdmin);
+            SystemLog::ReRunAsAdmin.log();
             elevate()
-                .map_err(|_| SystemEntry::RunAsAdminFailed)
+                .map_err(|_| SystemError::RunAsAdminFailed)
                 .unwrap();
         }
         AppConfig::initialization().await;
         Engine::initialize().await;
         IOManager::initialize().await;
         DatabaseManager::initialization().await;
-        info!("{}", SystemEntry::InitializeComplete);
+        SystemLog::InitializeComplete.log();
     }
 
     pub async fn run() {
-        info!("{}", SystemEntry::Online);
+        info!("{}", SystemLog::Online);
     }
 
     pub async fn terminate() {
-        info!("{}", SystemEntry::Terminating);
+        SystemLog::Terminating.log();
         Engine::terminate().await;
         DatabaseManager::terminate().await;
-        info!("{}", SystemEntry::TerminateComplete);
+        SystemLog::TerminateComplete.log();
     }
 }

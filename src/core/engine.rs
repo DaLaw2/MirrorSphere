@@ -1,10 +1,11 @@
 use crate::model::task::BackupTask;
-use crate::utils::log_entry::task::TaskEntry;
+use crate::model::log::task::TaskLog;
 use dashmap::DashMap;
 use std::sync::OnceLock;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver as OneShotReceiver, Sender as OneShotSender};
 use uuid::Uuid;
+use crate::model::error::task::TaskError;
 
 pub static ENGINE: OnceLock<Engine> = OnceLock::new();
 
@@ -52,7 +53,7 @@ impl Engine {
         let task = instance
             .tasks
             .get(&uuid)
-            .ok_or(TaskEntry::TaskNotFound)?
+            .ok_or(TaskError::TaskNotFound)?
             .value()
             .clone();
         let (tx, rx) = oneshot::channel();
@@ -70,7 +71,7 @@ impl Engine {
         let (_, channel) = instance
             .shutdown
             .remove(&uuid)
-            .ok_or(TaskEntry::TaskNotFound)?;
+            .ok_or(TaskError::TaskNotFound)?;
         let _ = channel.send(());
         Ok(())
     }

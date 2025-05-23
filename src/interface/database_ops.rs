@@ -1,11 +1,12 @@
 use crate::model::task::BackupTask;
 use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
-use crate::utils::log_entry::database::DatabaseEntry;
+use crate::model::log::database::DatabaseLog;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tokio::fs;
 use tokio::fs::File;
 use uuid::Uuid;
+use crate::model::error::database::DatabaseError;
 
 #[async_trait]
 pub trait DatabaseOpsTrait {
@@ -20,7 +21,7 @@ pub trait DatabaseOpsTrait {
     async fn create_database() -> anyhow::Result<()> {
         let _ = File::create(DATABASE_PATH)
             .await
-            .map_err(|_| DatabaseEntry::CreateDatabaseFailed)?;
+            .map_err(|_| DatabaseError::CreateDatabaseFailed)?;
         Ok(())
     }
 
@@ -28,17 +29,17 @@ pub trait DatabaseOpsTrait {
         if fs::metadata(DATABASE_LOCK_PATH).await.is_err() {
             File::create(&DATABASE_LOCK_PATH)
                 .await
-                .map_err(|_| DatabaseEntry::LockDatabaseFailed)?;
+                .map_err(|_| DatabaseError::LockDatabaseFailed)?;
             Ok(())
         } else {
-            Err(DatabaseEntry::LockDatabaseFailed)?
+            Err(DatabaseError::LockDatabaseFailed)?
         }
     }
 
     async fn unlock_database() -> anyhow::Result<()> {
         fs::remove_file(&DATABASE_LOCK_PATH)
             .await
-            .map_err(|_| DatabaseEntry::UnlockDatabaseFailed)?;
+            .map_err(|_| DatabaseError::UnlockDatabaseFailed)?;
         Ok(())
     }
 
