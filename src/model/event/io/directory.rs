@@ -3,14 +3,6 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct ListDirectoryEvent {
-    pub task_id: Uuid,
-    pub path: PathBuf,
-}
-
-impl Event for ListDirectoryEvent {}
-
-#[derive(Clone)]
 pub struct CreateDirectoryEvent {
     pub task_id: Uuid,
     pub path: PathBuf,

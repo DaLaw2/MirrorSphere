@@ -30,15 +30,17 @@ pub enum HashType {
 pub enum ComparisonMode {
     // Compare size and modify time
     Standard,
-    // Standard + regular file attr + compare file checksum
+    // Standard + regular file attr
+    Advanced,
+    // Advanced + compare file checksum
     Thorough(HashType),
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct BackupOptions {
-    lock_source: bool,
-    backup_acl: bool,
-    follow_symlinks: bool,
+    pub lock_source: bool,
+    pub backup_permission: bool,
+    pub follow_symlinks: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +55,19 @@ pub struct BackupTask {
     pub schedule: bool,
     pub last_run_time: Option<SystemTime>,
     pub next_run_time: Option<SystemTime>,
+}
+
+impl BackupTask {
+    pub fn to_worker_task(&self) -> WorkerTask {
+        WorkerTask {
+            uuid: self.uuid,
+            source_path: self.source_path.clone(),
+            destination_path: self.destination_path.clone(),
+            backup_type: self.backup_type,
+            comparison_mode: self.comparison_mode,
+            options: self.options,       
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

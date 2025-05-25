@@ -1,6 +1,7 @@
 use crate::core::event_system::event_bus::EventBus;
 use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;
+use crate::model::event::io::attributes::GetAttributesEvent;
 use crate::model::event::io::directory::*;
 use crate::model::event::io::file::*;
 use crate::model::event::io::hash::*;
@@ -16,7 +17,6 @@ use tokio::task::spawn_blocking;
 use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
-use crate::model::event::io::permission::GetPermissionEvent;
 
 #[async_trait]
 pub trait FileSystemTrait {
@@ -24,7 +24,7 @@ pub trait FileSystemTrait {
 
     fn semaphore(&self) -> Arc<Semaphore>;
 
-    async fn is_symlink(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<bool> {
+    async fn is_symlink(&self, path: PathBuf) -> anyhow::Result<bool> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -34,8 +34,7 @@ pub trait FileSystemTrait {
         let symlink_metadata = tokio::fs::symlink_metadata(&path)
             .await
             .map_err(|_| IOError::GetMetadataFailed)?;
-        let event = GetPermissionEvent { task_id, path };
-        EventBus::publish(event).await?;
+
         Ok(symlink_metadata.file_type().is_symlink())
     }
 
@@ -54,8 +53,6 @@ pub trait FileSystemTrait {
             let path = entry.map_err(|_| IOError::ReadFileFailed)?.path();
             result.push(path);
         }
-        let event = ListDirectoryEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(result)
     }
 
@@ -183,13 +180,6 @@ pub trait FileSystemTrait {
         source: PathBuf,
         destination: PathBuf,
     ) -> anyhow::Result<bool> {
-        if !self
-            .compare_attributes(task_id, source.clone(), destination.clone())
-            .await?
-        {
-            return Ok(false);
-        }
-
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -216,6 +206,39 @@ pub trait FileSystemTrait {
             return Ok(false);
         }
 
+        let event = GetAttributesEvent {
+            task_id,
+            path: source,
+        };
+        EventBus::publish(event).await?;
+        let event = GetAttributesEvent {
+            task_id,
+            path: destination,
+        };
+        EventBus::publish(event).await?;
+        Ok(true)
+    }
+
+    async fn advance_compare(
+        &self,
+        task_id: Uuid,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> anyhow::Result<bool> {
+        if !self
+            .standard_compare(task_id, source.clone(), destination.clone())
+            .await?
+        {
+            return Ok(false);
+        }
+
+        if !self
+            .compare_attributes(task_id, source.clone(), destination.clone())
+            .await?
+        {
+            return Ok(false);
+        }
+
         Ok(true)
     }
 
@@ -227,7 +250,7 @@ pub trait FileSystemTrait {
         hash_type: HashType,
     ) -> anyhow::Result<bool> {
         if !self
-            .standard_compare(task_id, source.clone(), destination.clone())
+            .advance_compare(task_id, source.clone(), destination.clone())
             .await?
         {
             return Ok(false);
