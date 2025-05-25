@@ -34,12 +34,11 @@ pub enum ComparisonMode {
     Thorough(HashType),
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct BackupOptions {
     lock_source: bool,
     backup_acl: bool,
-    backup_other_file: bool,
-    advanced_file_attr: bool,
+    follow_symlinks: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -54,4 +53,14 @@ pub struct BackupTask {
     pub schedule: bool,
     pub last_run_time: Option<SystemTime>,
     pub next_run_time: Option<SystemTime>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkerTask {
+    pub uuid: Uuid,
+    pub source_path: PathBuf,
+    pub destination_path: PathBuf,
+    pub backup_type: BackupType,
+    pub comparison_mode: Option<ComparisonMode>,
+    pub options: BackupOptions,
 }

@@ -4,5 +4,8 @@ loggable! {
     TaskError {
         #[error("Task not found")]
         TaskNotFound: tracing::Level::ERROR,
+        
+        #[error("Failed to stop task")]
+        StopTaskFailed: tracing::Level::ERROR,
     }
 }

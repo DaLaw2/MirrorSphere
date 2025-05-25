@@ -1,12 +1,12 @@
 use crate::core::event_system::event_bus::EventBus;
+use crate::model::error::io::IOError;
+use crate::model::error::system::SystemError;
 use crate::model::event::io::directory::*;
 use crate::model::event::io::file::*;
 use crate::model::event::io::hash::*;
 use crate::model::task::HashType;
 use crate::platform::attributes::*;
 use crate::utils::file_hash::*;
-use crate::model::log::io::IOLog;
-use crate::model::log::system::SystemLog;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,14 +16,28 @@ use tokio::task::spawn_blocking;
 use tokio_stream::wrappers::ReadDirStream;
 use tokio_stream::StreamExt;
 use uuid::Uuid;
-use crate::model::error::io::IOError;
-use crate::model::error::system::SystemError;
+use crate::model::event::io::permission::GetPermissionEvent;
 
 #[async_trait]
 pub trait FileSystemTrait {
     fn new(semaphore: Arc<Semaphore>) -> Self;
 
     fn semaphore(&self) -> Arc<Semaphore>;
+
+    async fn is_symlink(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<bool> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOError::SemaphoreClosed)?;
+
+        let symlink_metadata = tokio::fs::symlink_metadata(&path)
+            .await
+            .map_err(|_| IOError::GetMetadataFailed)?;
+        let event = GetPermissionEvent { task_id, path };
+        EventBus::publish(event).await?;
+        Ok(symlink_metadata.file_type().is_symlink())
+    }
 
     async fn list_directory(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Vec<PathBuf>> {
         let semaphore = self.semaphore();
@@ -119,12 +133,28 @@ pub trait FileSystemTrait {
         attributes: Attributes,
     ) -> anyhow::Result<()>;
 
+    async fn copy_attributes(
+        &self,
+        task_id: Uuid,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> anyhow::Result<()> {
+        let source_attributes = self.get_attributes(task_id, source.clone()).await?;
+        self.set_attributes(task_id, destination, source_attributes)
+            .await?;
+        Ok(())
+    }
+
     async fn compare_attributes(
         &self,
         task_id: Uuid,
         source: PathBuf,
         destination: PathBuf,
-    ) -> anyhow::Result<bool>;
+    ) -> anyhow::Result<bool> {
+        let source_attributes = self.get_attributes(task_id, source.clone()).await?;
+        let destination_attributes = self.get_attributes(task_id, destination.clone()).await?;
+        Ok(source_attributes == destination_attributes)
+    }
 
     async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions>;
 
@@ -132,8 +162,20 @@ pub trait FileSystemTrait {
         &self,
         task_id: Uuid,
         path: PathBuf,
-        permission: Permissions,
+        permissions: Permissions,
     ) -> anyhow::Result<()>;
+
+    async fn copy_permission(
+        &self,
+        task_id: Uuid,
+        source: PathBuf,
+        destination: PathBuf,
+    ) -> anyhow::Result<()> {
+        let source_permissions = self.get_permission(task_id, source.clone()).await?;
+        self.set_permission(task_id, destination, source_permissions)
+            .await?;
+        Ok(())
+    }
 
     async fn standard_compare(
         &self,

@@ -1,6 +1,7 @@
 use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::error::io::IOError;
+use crate::model::error::misc::MiscError;
 use crate::model::error::system::SystemError;
 use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
 use crate::model::event::io::permission::GetPermissionEvent;
@@ -28,7 +29,6 @@ use windows::Win32::Storage::FileSystem::{
     FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Time::SystemTimeToFileTime;
-use crate::model::error::misc::MiscError;
 
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
@@ -137,17 +137,6 @@ impl FileSystemTrait for FileSystem {
         let event = SetAttributesEvent { task_id, path };
         EventBus::publish(event).await?;
         Ok(())
-    }
-
-    async fn compare_attributes(
-        &self,
-        task_id: Uuid,
-        source: PathBuf,
-        destination: PathBuf,
-    ) -> anyhow::Result<bool> {
-        let source_attributes = self.get_attributes(task_id, source).await?;
-        let destination_attributes = self.get_attributes(task_id, destination).await?;
-        Ok(source_attributes == destination_attributes)
     }
 
     async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {

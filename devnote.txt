@@ -1,10 +1,5 @@
-TODO
- - 使用執行緒安全的 queue 來實作演算法 可以實現演算法的平行化
-
-一些想法 (皆需要直接調用 Windows API)
+一些想法 (需要直接調用 Windows API)
  - 用 USN Journal 來追蹤檔案系統變更來達到快速掃描的目的 (NTFS 限定)
- - 支援 Windows NTFS ACL (Access Control List)
- - 支援額外的檔案跟檔案屬性
 
 平行化版本
 Initialize:
@@ -21,9 +16,6 @@ for i in 1..=worker_count:
                 if current_level_visited.is_empty():
                     break
                 queue.extend(current_level_visited.clear())
-                continue
-
-            if need_resume && not reach_checkpoint:
                 continue
 
             process current_dir:
@@ -43,6 +35,6 @@ for i in 1..=worker_count:
 
                     queue.push(sub_dir)
 
-            update progress
+            update progress (save queue, set state)
             save checkpoint periodically
 join all workers
