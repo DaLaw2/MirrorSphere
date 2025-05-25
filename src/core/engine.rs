@@ -295,7 +295,7 @@ impl Engine {
     ) -> anyhow::Result<()> {
         let io_manager = IOManager::instance();
 
-        let need_copy = match comparison_mode {
+        let need_copy = !match comparison_mode {
             ComparisonMode::Standard => {
                 io_manager
                     .standard_compare(uuid, source_path.clone(), destination_path.clone())
