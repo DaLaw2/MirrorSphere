@@ -1,28 +1,30 @@
-use tokio::fs::File;
-use std::io;
-use std::path::Path;
+use crate::model::error::io::IOError;
 use fs4::tokio::AsyncFileExt;
+use std::path::PathBuf;
+use tokio::fs::File;
 
 #[derive(Debug)]
 pub struct FileLock {
     file: File,
+    path: PathBuf,
 }
 
 impl FileLock {
-    pub async fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let file = File::open(path).await?;
-        file.try_lock_exclusive()?;
-        Ok(Self { file })
-    }
-
-    pub async fn from_file(file: File) -> io::Result<Self> {
-        file.try_lock_exclusive()?;
-        Ok(Self { file })
+    pub async fn new(path: &PathBuf) -> anyhow::Result<Self> {
+        let file = File::open(path)
+            .await
+            .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
+        file.try_lock_exclusive()
+            .map_err(|_| IOError::LockFileFailed { path: path.clone() })?;
+        Ok(Self { file, path: path.clone() })
     }
 }
 
 impl Drop for FileLock {
     fn drop(&mut self) {
-        let _ = self.file.unlock();
+        let path = self.path.clone();
+        if let Err(_) = self.file.unlock() {
+            IOError::UnlockFileFailed { path }.log();
+        }
     }
 }

@@ -8,6 +8,7 @@ use crate::model::task::{BackupTask, BackupType, ComparisonMode, WorkerTask};
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
+use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot;
@@ -172,7 +173,7 @@ impl Engine {
         let io_manager = IOManager::instance();
 
         let mirror = worker_task.options.mirror;
-        
+
         let mut next_level = Vec::new();
         let mut errors = Vec::new();
 
@@ -189,7 +190,7 @@ impl Engine {
                 }
             };
 
-            for entry in entries {
+            for entry in entries.iter() {
                 if shutdown.try_recv().is_ok() {
                     break;
                 }
@@ -199,9 +200,30 @@ impl Engine {
                     Err(e) => errors.push(e),
                 }
             }
-            
+
             if mirror {
-                
+                let source_entries = entries;
+                let destination_dir = match Self::calculate_destination_path(
+                    &current_dir,
+                    &worker_task.source_path,
+                    &worker_task.destination_path,
+                ) {
+                    Ok(dir) => dir,
+                    Err(e) => {
+                        errors.push(e);
+                        continue;
+                    }
+                };
+                if destination_dir.exists() {
+                    match io_manager.list_directory(&destination_dir).await {
+                        Ok(destination_entries) => {
+                            let (_, mirror_errors) =
+                                Self::mirror_cleanup(source_entries, destination_entries).await;
+                            errors.extend(mirror_errors);
+                        }
+                        Err(e) => errors.push(e),
+                    }
+                }
             }
         }
 
@@ -209,74 +231,188 @@ impl Engine {
     }
 
     async fn process_entry(
-        current_path: PathBuf,
+        current_path: &PathBuf,
         worker_task: &WorkerTask,
     ) -> anyhow::Result<Option<PathBuf>> {
         let io_manager = IOManager::instance();
 
         let source_root = &worker_task.source_path;
         let destination_root = &worker_task.destination_path;
-        let backup_type = worker_task.backup_type;
-        let comparison_mode = worker_task.comparison_mode;
         let options = worker_task.options;
 
-        let source_path = current_path;
+        let source_path = current_path.clone();
         let destination_path =
             Self::calculate_destination_path(&source_path, &source_root, &destination_root)?;
 
         let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
 
         if is_symlink {
-            Self::process_symlink(&source_path, &destination_path, options.follow_symlinks).await;
+            Self::process_symlink(&source_path, &destination_path, options).await?;
             return Ok(None);
         }
 
-        let mut retval = None;
-
         if source_path.is_dir() {
-            if !destination_path.exists() {
-                io_manager.create_directory(&destination_path).await?;
-            }
-            retval = Some(source_path.clone());
+            Self::backup_directory(&source_path, &destination_path, worker_task).await
         } else {
-            #[allow(unused_variables)]
-            #[allow(unused_assignments)]
-            let mut file_lock = None;
-            if options.lock_source {
-                file_lock = Some(io_manager.acquire_file_lock(&source_path).await?);
-            }
+            Self::backup_file(&source_path, &destination_path, worker_task).await
+        }
+    }
 
-            match backup_type {
-                BackupType::Full => Self::full_backup(&source_path, &destination_path).await?,
-                BackupType::Incremental => {
-                    let comparison_mode = comparison_mode.ok_or(SystemError::UnknownError)?;
-                    Self::incremental_backup(&source_path, &destination_path, comparison_mode)
-                        .await?
-                }
+    async fn backup_directory(
+        source_path: &PathBuf,
+        destination_path: &PathBuf,
+        worker_task: &WorkerTask,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        let io_manager = IOManager::instance();
+
+        if !destination_path.exists() {
+            io_manager.create_directory(&destination_path).await?;
+        }
+
+        io_manager
+            .copy_attributes(source_path, destination_path)
+            .await?;
+
+        if worker_task.options.backup_permission {
+            io_manager
+                .copy_permission(source_path, destination_path)
+                .await?;
+        }
+
+        Ok(Some(source_path.clone()))
+    }
+
+    async fn backup_file(
+        source_path: &PathBuf,
+        destination_path: &PathBuf,
+        worker_task: &WorkerTask,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        let io_manager = IOManager::instance();
+
+        #[allow(unused_variables)]
+        let mut file_lock = None;
+        #[allow(unused_assignments)]
+        if worker_task.options.lock_source {
+            file_lock = Some(io_manager.acquire_file_lock(source_path).await?);
+        }
+
+        match worker_task.backup_type {
+            BackupType::Full => Self::full_backup(source_path, destination_path).await?,
+            BackupType::Incremental => {
+                let comparison_mode = worker_task
+                    .comparison_mode
+                    .ok_or(SystemError::UnknownError)?;
+                Self::incremental_backup(source_path, destination_path, comparison_mode).await?
             }
         }
 
         io_manager
-            .copy_attributes(&source_path, &destination_path)
+            .copy_attributes(source_path, destination_path)
             .await?;
 
-        if options.backup_permission {
+        if worker_task.options.backup_permission {
             io_manager
-                .copy_permission(&source_path, &destination_path)
+                .copy_permission(source_path, destination_path)
                 .await?;
         }
 
-        Ok(retval)
+        drop(file_lock);
+
+        Ok(None)
     }
 
+    #[inline(always)]
     async fn process_symlink(
         source_path: &PathBuf,
         destination_path: &PathBuf,
-        follow_symlink: bool,
-    ) {
-        todo!()
+        worker_task: &WorkerTask,
+    ) -> anyhow::Result<()> {
+        if worker_task.options.follow_symlinks {
+            Self::follow_symlink(source_path, destination_path, worker_task).await
+        } else {
+            Self::copy_symlink(source_path, destination_path, worker_task).await
+        }
     }
 
+    async fn follow_symlink(
+        source_path: &PathBuf,
+        destination_path: &PathBuf,
+        worker_task: &WorkerTask,
+    ) -> anyhow::Result<()> {
+        let io_manager = IOManager::instance();
+
+        let mut queue = VecDeque::new();
+        let mut visited = HashSet::new();
+
+        queue.push_back((source_path.clone(), destination_path.clone()));
+
+        while let Some((current_source, current_dest)) = queue.pop_front() {
+            let is_symlink = io_manager
+                .is_symlink(&current_source)
+                .await
+                .unwrap_or(false);
+            let canonical_path = if is_symlink {
+                match current_source.canonicalize() {
+                    Ok(path) => path,
+                    Err(_) => continue,
+                }
+            } else {
+                current_source.clone()
+            };
+
+            if visited.contains(&canonical_path) {
+                continue;
+            }
+            visited.insert(canonical_path.clone());
+
+            if canonical_path.is_dir() {
+                Self::backup_directory(&canonical_path, &current_dest, worker_task).await?;
+
+                let entries = io_manager.list_directory(&canonical_path).await?;
+                for entry in entries {
+                    let relative_path = match entry.strip_prefix(&canonical_path) {
+                        Ok(rel_path) => rel_path.to_path_buf(),
+                        Err(_) => match entry.file_name() {
+                            Some(name) => PathBuf::from(name),
+                            None => continue,
+                        }
+                    };
+                    let new_destination = current_dest.join(relative_path);
+                    queue.push_back((entry, new_destination));
+                }
+            } else {
+                Self::backup_file(&canonical_path, &current_dest, worker_task).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn copy_symlink(
+        source_path: &PathBuf,
+        destination_path: &PathBuf,
+        worker_task: &WorkerTask,
+    ) -> anyhow::Result<()> {
+        let io_manager = IOManager::instance();
+
+        io_manager
+            .copy_symlink(source_path, destination_path)
+            .await?;
+
+        io_manager
+            .copy_attributes(source_path, destination_path)
+            .await?;
+
+        if worker_task.options.backup_permission {
+            io_manager
+                .copy_permission(source_path, destination_path)
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    #[inline(always)]
     async fn full_backup(source_path: &PathBuf, destination_path: &PathBuf) -> anyhow::Result<()> {
         let io_manager = IOManager::instance();
         io_manager.copy_file(source_path, destination_path).await
@@ -312,6 +448,38 @@ impl Engine {
         } else {
             Ok(())
         }
+    }
+
+    async fn mirror_cleanup(
+        source_entries: Vec<PathBuf>,
+        destination_entries: Vec<PathBuf>,
+    ) -> ((), Vec<anyhow::Error>) {
+        let io_manager = IOManager::instance();
+
+        let mut errors = Vec::new();
+
+        let source_names: HashSet<_> = source_entries
+            .into_iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_owned()))
+            .collect();
+
+        for dest_entry in destination_entries {
+            if let Some(file_name) = dest_entry.file_name() {
+                if !source_names.contains(file_name) {
+                    if dest_entry.is_dir() {
+                        if let Err(e) = io_manager.delete_directory(&dest_entry).await {
+                            errors.push(e);
+                        }
+                    } else {
+                        if let Err(e) = io_manager.delete_file(&dest_entry).await {
+                            errors.push(e);
+                        }
+                    }
+                }
+            }
+        }
+
+        ((), errors)
     }
 
     fn calculate_destination_path(

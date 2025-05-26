@@ -5,6 +5,12 @@ loggable! {
     IOError {
         #[error("Semaphore has been closed")]
         SemaphoreClosed => tracing::Level::ERROR,
+        
+        #[error("Failed to read symbol link: {path}")]      
+        ReadSymbolLinkFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to create symbol link: From {src} To {dst}")]       
+        CreateSymbolLinkFailed { src: PathBuf, dst: PathBuf } => tracing::Level::ERROR,
 
         #[error("Failed to create directory: {path}")]
         CreateDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,

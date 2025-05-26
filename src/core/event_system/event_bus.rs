@@ -3,7 +3,6 @@ use crate::core::event_system::listener_group::ListenerGroup;
 use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
-use crate::model::log::system::SystemLog;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::OnceLock;

@@ -40,6 +40,49 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> anyhow::Result<()> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOError::SemaphoreClosed)?;
+
+        if link_path.is_dir() {
+            tokio::fs::symlink_dir(target, link_path).await
+        } else {
+            tokio::fs::symlink_file(target, link_path).await
+        }
+        .map_err(|_| IOError::CreateSymbolLinkFailed {
+            src: target.clone(),
+            dst: link_path.clone(),
+        })?;
+
+        Ok(())
+    }
+    
+    async fn copy_symlink(&self, source_link: &PathBuf, destination_link: &PathBuf) -> anyhow::Result<()> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOError::SemaphoreClosed)?;
+
+        let link_target = tokio::fs::read_link(source_link).await
+            .map_err(|_| IOError::ReadSymbolLinkFailed { path: source_link.clone() })?;
+
+        if link_target.is_dir() {
+            tokio::fs::symlink_dir(&link_target, destination_link).await
+        } else {
+            tokio::fs::symlink_file(&link_target, destination_link).await
+        }
+            .map_err(|_| IOError::CreateSymbolLinkFailed {
+                src: source_link.clone(),
+                dst: destination_link.clone(),
+            })?;
+
+        Ok(())
+    }
+
     async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes> {
         let semaphore = self.semaphore();
         let _permit = semaphore

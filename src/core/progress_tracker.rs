@@ -1,7 +1,6 @@
 use crate::interface::event_system::actor::Actor;
 use std::path::PathBuf;
 use uuid::Uuid;
-use crate::model::error::io::IOError;
 
 pub struct ProgressTracker {}
 

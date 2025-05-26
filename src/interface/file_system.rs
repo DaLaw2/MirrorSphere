@@ -2,10 +2,9 @@ use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;
 use crate::model::task::HashType;
 use crate::platform::attributes::*;
-use crate::platform::raii_guard::*;
 use crate::utils::file_hash::*;
+use crate::utils::file_lock::FileLock;
 use async_trait::async_trait;
-use fs4::tokio::AsyncFileExt;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs;
@@ -33,6 +32,10 @@ pub trait FileSystemTrait {
 
         Ok(symlink_metadata.file_type().is_symlink())
     }
+
+    async fn create_symlink(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()>;
+
+    async fn copy_symlink(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()>;
 
     async fn list_directory(&self, path: &PathBuf) -> anyhow::Result<Vec<PathBuf>> {
         let semaphore = self.semaphore();
@@ -140,20 +143,14 @@ pub trait FileSystemTrait {
         Ok(())
     }
 
-    async fn acquire_file_lock(&self, path: &PathBuf) -> anyhow::Result<FileLockGuard> {
+    async fn acquire_file_lock(&self, path: &PathBuf) -> anyhow::Result<FileLock> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(|_| IOError::SemaphoreClosed)?;
 
-        fs::File::open(path)
-            .await
-            .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?
-            .try_lock_exclusive()
-            .map_err(|_| IOError::LockFileFailed { path: path.clone() })?;
-
-        let file_lock = FileLockGuard::new(path.clone());
+        let file_lock = FileLock::new(path).await?;
 
         Ok(file_lock)
     }

@@ -28,6 +28,42 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> anyhow::Result<()> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOError::SemaphoreClosed)?;
+
+        tokio::fs::symlink(target, link_path).await.map_err(|_| {
+            IOError::CreateSymbolLinkFailed {
+                src: target.clone(),
+                dst: link_path.clone(),
+            }
+        })?;
+
+        Ok(())
+    }
+
+    async fn copy_symlink(
+        &self,
+        source_link: &PathBuf,
+        destination_link: &PathBuf,
+    ) -> anyhow::Result<()> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|_| IOError::SemaphoreClosed)?;
+
+        tokio::fs::symlink(&link_target, destination_link)
+            .await
+            .map_err(|_| IOError::CreateSymbolLinkFailed {
+                src: source_link.clone(),
+                dst: destination_link.clone(),
+            })?;
+    }
+
     async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes> {
         let semaphore = self.semaphore();
         let _permit = semaphore
@@ -116,8 +152,7 @@ impl FileSystemTrait for FileSystem {
 
         let permission = spawn_blocking(move || {
             let path = path_clone;
-            let metadata =
-                std::fs::metadata(&path).map_err(|_| IOError::GetMetadataFailed)?;
+            let metadata = std::fs::metadata(&path).map_err(|_| IOError::GetMetadataFailed)?;
 
             let uid = metadata.uid();
             let gid = metadata.gid();

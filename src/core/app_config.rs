@@ -1,10 +1,9 @@
 use crate::model::config::{Config, ConfigTable};
+use crate::model::error::system::SystemError;
 use crate::model::log::system::SystemLog;
 use std::fs;
 use std::sync::{OnceLock, RwLock as SyncRwLock};
 use tokio::sync::RwLock as AsyncRwLock;
-use tracing::info;
-use crate::model::error::system::SystemError;
 
 static SYNC_CONFIG: OnceLock<SyncRwLock<Config>> = OnceLock::new();
 static ASYNC_CONFIG: OnceLock<AsyncRwLock<Config>> = OnceLock::new();
@@ -24,9 +23,9 @@ impl AppConfig {
         let config = match fs::read_to_string("./config.toml") {
             Ok(toml_string) => match toml::from_str::<ConfigTable>(&toml_string) {
                 Ok(config_table) => config_table.config,
-                Err(_) => panic!("{}", SystemError::InvalidConfig)
-            }
-            Err(_) => panic!("{}", SystemError::ConfigNotFound)
+                Err(_) => panic!("{}", SystemError::InvalidConfig),
+            },
+            Err(_) => panic!("{}", SystemError::ConfigNotFound),
         };
         config
     }

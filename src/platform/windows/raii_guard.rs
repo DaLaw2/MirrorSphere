@@ -36,27 +36,3 @@ impl Drop for SecurityDescriptorGuard {
         }
     }
 }
-
-pub struct FileLockGuard {
-    path: PathBuf,
-}
-
-impl FileLockGuard {
-    pub fn new(path: PathBuf) -> Self {
-        Self { path }
-    }
-}
-
-impl Drop for FileLockGuard {
-    fn drop(&mut self) {
-        let path = self.path.clone();
-        match std::fs::File::open(&path) {
-            Ok(file) => {
-                if FileExt::unlock(&file).is_err() {
-                    IOError::UnlockFileFailed { path }.log();
-                }
-            }
-            Err(_) => IOError::ReadFileFailed { path }.log(),
-        }
-    }
-}
