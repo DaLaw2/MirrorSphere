@@ -238,7 +238,6 @@ impl Engine {
 
         let source_root = &worker_task.source_path;
         let destination_root = &worker_task.destination_path;
-        let options = worker_task.options;
 
         let source_path = current_path.clone();
         let destination_path =
@@ -247,7 +246,7 @@ impl Engine {
         let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
 
         if is_symlink {
-            Self::process_symlink(&source_path, &destination_path, options).await?;
+            Self::process_symlink(&source_path, &destination_path, worker_task).await?;
             return Ok(None);
         }
 
