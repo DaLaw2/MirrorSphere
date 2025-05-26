@@ -1,4 +1,5 @@
-use crate::model::log::system::SystemLog;
+use crate::model::error::misc::MiscError;
+use crate::model::error::system::SystemError;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::{env, mem};
@@ -14,7 +15,6 @@ use windows::Win32::System::Com::{
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
-use crate::model::error::system::SystemError;
 
 pub fn elevate() -> anyhow::Result<()> {
     let exe = env::current_exe()?;
@@ -95,7 +95,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
     )
     .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
-    CloseHandle(token_handle).map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+    CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 
     if GetLastError().is_err() {
         Err(SystemError::AdjustTokenPrivilegesFailed)?

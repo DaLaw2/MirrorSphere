@@ -2,11 +2,12 @@ use crate::core::app_config::AppConfig;
 use crate::core::database_manager::DatabaseManager;
 use crate::core::engine::Engine;
 use crate::core::io_manager::IOManager;
-use crate::platform::elevate::elevate;
+use crate::model::error::system::SystemError;
 use crate::model::log::system::SystemLog;
+use crate::platform::elevate::elevate;
 use crate::utils::logging::Logging;
 use privilege::user::privileged;
-use crate::model::error::system::SystemError;
+use std::process;
 
 pub struct System;
 
@@ -19,6 +20,7 @@ impl System {
             elevate()
                 .map_err(|_| SystemError::RunAsAdminFailed)
                 .unwrap();
+            process::exit(0);
         }
         AppConfig::initialization().await;
         Engine::initialize().await;

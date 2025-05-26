@@ -44,7 +44,9 @@ impl Engine {
             .collect();
         for uuid in keys {
             if let Some((_, sender)) = instance.shutdown.remove(&uuid) {
-                let _ = sender.send(());
+                if let Err(_) = sender.send(()) {
+                    TaskError::StopTaskFailed.log();
+                }
             }
         }
     }
@@ -144,8 +146,8 @@ impl Engine {
             let mut next_level = Vec::new();
             for result in results {
                 match result {
-                    Ok((subdirs, worker_errors)) => {
-                        next_level.extend(subdirs);
+                    Ok((worker_next_level, worker_errors)) => {
+                        next_level.extend(worker_next_level);
                         errors.extend(worker_errors);
                     }
                     Err(_) => SystemError::ThreadPanic.log(),
@@ -168,8 +170,9 @@ impl Engine {
         mut shutdown: OneShotReceiver<()>,
     ) -> (Vec<PathBuf>, Vec<anyhow::Error>) {
         let io_manager = IOManager::instance();
-        let uuid = worker_task.uuid;
 
+        let mirror = worker_task.options.mirror;
+        
         let mut next_level = Vec::new();
         let mut errors = Vec::new();
 
@@ -178,7 +181,7 @@ impl Engine {
                 break;
             }
 
-            let entries = match io_manager.list_directory(uuid, current_dir.clone()).await {
+            let entries = match io_manager.list_directory(&current_dir).await {
                 Ok(entries) => entries,
                 Err(e) => {
                     errors.push(e);
@@ -196,6 +199,10 @@ impl Engine {
                     Err(e) => errors.push(e),
                 }
             }
+            
+            if mirror {
+                
+            }
         }
 
         (next_level, errors)
@@ -207,9 +214,8 @@ impl Engine {
     ) -> anyhow::Result<Option<PathBuf>> {
         let io_manager = IOManager::instance();
 
-        let uuid = worker_task.uuid;
-        let source_root = worker_task.source_path.clone();
-        let destination_root = worker_task.destination_path.clone();
+        let source_root = &worker_task.source_path;
+        let destination_root = &worker_task.destination_path;
         let backup_type = worker_task.backup_type;
         let comparison_mode = worker_task.comparison_mode;
         let options = worker_task.options;
@@ -218,10 +224,7 @@ impl Engine {
         let destination_path =
             Self::calculate_destination_path(&source_path, &source_root, &destination_root)?;
 
-        let is_symlink = io_manager
-            .is_symlink(source_path.clone())
-            .await
-            .unwrap_or(false);
+        let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
 
         if is_symlink {
             Self::process_symlink(&source_path, &destination_path, options.follow_symlinks).await;
@@ -232,36 +235,34 @@ impl Engine {
 
         if source_path.is_dir() {
             if !destination_path.exists() {
-                io_manager
-                    .create_directory(uuid, destination_path.clone())
-                    .await?;
+                io_manager.create_directory(&destination_path).await?;
             }
             retval = Some(source_path.clone());
         } else {
-            let mut lock = None;
+            #[allow(unused_variables)]
+            #[allow(unused_assignments)]
+            let mut file_lock = None;
             if options.lock_source {
-                todo!()
+                file_lock = Some(io_manager.acquire_file_lock(&source_path).await?);
             }
 
             match backup_type {
-                BackupType::Full => {
-                    Self::full_backup(uuid, &source_path, &destination_path).await?
-                }
+                BackupType::Full => Self::full_backup(&source_path, &destination_path).await?,
                 BackupType::Incremental => {
                     let comparison_mode = comparison_mode.ok_or(SystemError::UnknownError)?;
-                    Self::incremental_backup(uuid, &source_path, &destination_path, comparison_mode)
+                    Self::incremental_backup(&source_path, &destination_path, comparison_mode)
                         .await?
                 }
             }
         }
 
         io_manager
-            .copy_attributes(uuid, source_path.clone(), destination_path.clone())
+            .copy_attributes(&source_path, &destination_path)
             .await?;
 
         if options.backup_permission {
             io_manager
-                .copy_permission(uuid, source_path, destination_path)
+                .copy_permission(&source_path, &destination_path)
                 .await?;
         }
 
@@ -276,19 +277,12 @@ impl Engine {
         todo!()
     }
 
-    async fn full_backup(
-        uuid: Uuid,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
-    ) -> anyhow::Result<()> {
+    async fn full_backup(source_path: &PathBuf, destination_path: &PathBuf) -> anyhow::Result<()> {
         let io_manager = IOManager::instance();
-        io_manager
-            .copy_file(uuid, source_path.clone(), destination_path.clone())
-            .await
+        io_manager.copy_file(source_path, destination_path).await
     }
 
     async fn incremental_backup(
-        uuid: Uuid,
         source_path: &PathBuf,
         destination_path: &PathBuf,
         comparison_mode: ComparisonMode,
@@ -298,30 +292,23 @@ impl Engine {
         let need_copy = !match comparison_mode {
             ComparisonMode::Standard => {
                 io_manager
-                    .standard_compare(uuid, source_path.clone(), destination_path.clone())
+                    .standard_compare(source_path, destination_path)
                     .await
             }
             ComparisonMode::Advanced => {
                 io_manager
-                    .advance_compare(uuid, source_path.clone(), destination_path.clone())
+                    .advance_compare(source_path, destination_path)
                     .await
             }
             ComparisonMode::Thorough(hash_type) => {
                 io_manager
-                    .thorough_compare(
-                        uuid,
-                        source_path.clone(),
-                        destination_path.clone(),
-                        hash_type,
-                    )
+                    .thorough_compare(source_path, destination_path, hash_type)
                     .await
             }
         }?;
 
         if need_copy {
-            io_manager
-                .copy_file(uuid, source_path.clone(), destination_path.clone())
-                .await
+            io_manager.copy_file(source_path, destination_path).await
         } else {
             Ok(())
         }

@@ -2,8 +2,6 @@ use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;
-use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
-use crate::model::event::io::permission::GetPermissionEvent;
 use crate::platform::attributes::{Attributes, Permissions};
 use async_trait::async_trait;
 use libc::mode_t;
@@ -30,14 +28,14 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes> {
+    async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(|_| IOError::SemaphoreClosed)?;
 
-        let metadata = tokio::fs::metadata(&path)
+        let metadata = tokio::fs::metadata(path)
             .await
             .map_err(|_| IOError::GetMetadataFailed)?;
 
@@ -73,18 +71,10 @@ impl FileSystemTrait for FileSystem {
             change_time,
         };
 
-        let event = GetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
-
         Ok(attributes)
     }
 
-    async fn set_attributes(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        attributes: Attributes,
-    ) -> anyhow::Result<()> {
+    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -95,7 +85,8 @@ impl FileSystemTrait for FileSystem {
         let mode = attributes.attributes & 0o7777;
 
         spawn_blocking(move || {
-            let c_path = CString::new(path_clone.to_string_lossy().as_bytes())
+            let path = path_clone;
+            let c_path = CString::new(path.to_string_lossy().as_bytes())
                 .map_err(|_| IOError::SetMetadataFailed)?;
 
             unsafe {
@@ -104,19 +95,17 @@ impl FileSystemTrait for FileSystem {
                 }
             }
 
-            Self::set_file_times(&path_clone, &attributes)?;
+            Self::set_file_times(&path, &attributes)?;
 
             Ok::<(), anyhow::Error>(())
         })
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 
-    async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
+    async fn get_permission(&self, path: &PathBuf) -> anyhow::Result<Permissions> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -126,8 +115,9 @@ impl FileSystemTrait for FileSystem {
         let path_clone = path.clone();
 
         let permission = spawn_blocking(move || {
+            let path = path_clone;
             let metadata =
-                std::fs::metadata(&path_clone).map_err(|_| IOError::GetMetadataFailed)?;
+                std::fs::metadata(&path).map_err(|_| IOError::GetMetadataFailed)?;
 
             let uid = metadata.uid();
             let gid = metadata.gid();
@@ -145,17 +135,10 @@ impl FileSystemTrait for FileSystem {
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
 
-        let event = GetPermissionEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(permission)
     }
 
-    async fn set_permission(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        permissions: Permissions,
-    ) -> anyhow::Result<()> {
+    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -165,9 +148,8 @@ impl FileSystemTrait for FileSystem {
         let path_clone = path.clone();
 
         spawn_blocking(move || {
-            use std::ffi::CString;
-
-            let c_path = CString::new(path_clone.to_string_lossy().as_bytes())
+            let path = path_clone;
+            let c_path = CString::new(path.to_string_lossy().as_bytes())
                 .map_err(|_| IOError::SetMetadataFailed)?;
 
             unsafe {
@@ -196,8 +178,6 @@ impl FileSystemTrait for FileSystem {
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 }

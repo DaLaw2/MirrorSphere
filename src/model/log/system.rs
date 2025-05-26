@@ -3,21 +3,21 @@ use crate::r#macro::loggable::loggable;
 loggable! {
     SystemLog {
         #[error("Rerun the program as administrator")]
-        ReRunAsAdmin: tracing::Level::WARN,
+        ReRunAsAdmin => tracing::Level::WARN,
 
         #[error("Online now")]
-        Online: tracing::Level::INFO,
+        Online => tracing::Level::INFO,
 
         #[error("Initializing")]
-        Initializing: tracing::Level::INFO,
+        Initializing => tracing::Level::INFO,
 
         #[error("Initialization completed")]
-        InitializeComplete: tracing::Level::INFO,
+        InitializeComplete => tracing::Level::INFO,
 
         #[error("Termination in process")]
-        Terminating: tracing::Level::INFO,
+        Terminating => tracing::Level::INFO,
 
         #[error("Termination completed")]
-        TerminateComplete: tracing::Level::INFO,
+        TerminateComplete => tracing::Level::INFO,
     }
 }

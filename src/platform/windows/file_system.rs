@@ -1,10 +1,7 @@
-use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::error::io::IOError;
 use crate::model::error::misc::MiscError;
 use crate::model::error::system::SystemError;
-use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
-use crate::model::event::io::permission::GetPermissionEvent;
 use crate::platform::attributes::{Attributes, Permissions};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
 use async_trait::async_trait;
@@ -17,7 +14,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
-use uuid::Uuid;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_ALL, SYSTEMTIME};
 use windows::Win32::Security::Authorization::{
@@ -44,28 +40,28 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes> {
+    async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(|_| IOError::SemaphoreClosed)?;
 
-        let metadata = tokio::fs::metadata(&path)
+        let metadata = tokio::fs::metadata(path)
             .await
-            .map_err(|_| IOError::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed { path: path.clone() })?;
 
         let attributes = metadata.file_attributes();
 
         let creation_time = metadata
             .created()
-            .map_err(|_| IOError::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed { path: path.clone() })?;
         let last_access_time = metadata
             .accessed()
-            .map_err(|_| IOError::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed { path: path.clone() })?;
         let change_time = metadata
             .modified()
-            .map_err(|_| IOError::GetMetadataFailed)?;
+            .map_err(|_| IOError::GetMetadataFailed { path: path.clone() })?;
 
         let attributes = Attributes {
             attributes,
@@ -74,18 +70,10 @@ impl FileSystemTrait for FileSystem {
             change_time,
         };
 
-        let event = GetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
-
         Ok(attributes)
     }
 
-    async fn set_attributes(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        attributes: Attributes,
-    ) -> anyhow::Result<()> {
+    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> anyhow::Result<()> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -96,12 +84,13 @@ impl FileSystemTrait for FileSystem {
 
         let file_attributes = attributes.attributes;
 
+        let path = path.clone();
         spawn_blocking(move || unsafe {
             SetFileAttributesW(
                 PCWSTR(file_path_wild.as_ptr()),
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
             )
-            .map_err(|_| IOError::SetMetadataFailed)?;
+            .map_err(|_| IOError::SetMetadataFailed { path: path.clone() })?;
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -112,7 +101,7 @@ impl FileSystemTrait for FileSystem {
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
                 None,
             )
-            .map_err(|_| IOError::SetMetadataFailed)?;
+            .map_err(|_| IOError::SetMetadataFailed { path: path.clone() })?;
 
             let creation_filetime = Self::system_time_to_file_time(attributes.creation_time)?;
             let last_access_filetime = Self::system_time_to_file_time(attributes.last_access_time)?;
@@ -127,21 +116,20 @@ impl FileSystemTrait for FileSystem {
 
             CloseHandle(handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 
-            result.map_err(|_| IOError::SetMetadataFailed)?;
+            result.map_err(|_| IOError::SetMetadataFailed { path: path.clone() })?;
 
             Ok::<(), anyhow::Error>(())
         })
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 
-    async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
+    async fn get_permission(&self, path: &PathBuf) -> anyhow::Result<Permissions> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
+        let path = path.clone();
         let permission = spawn_blocking(move || unsafe {
             let security_info = BACKUP_SECURITY_INFORMATION;
             let mut owner = PSID::default();
@@ -162,7 +150,7 @@ impl FileSystemTrait for FileSystem {
             )
             .is_err()
             {
-                Err(IOError::GetMetadataFailed)?;
+                Err(IOError::GetMetadataFailed { path: path.clone() })?;
             }
 
             Ok::<Permissions, anyhow::Error>(Permissions {
@@ -176,17 +164,10 @@ impl FileSystemTrait for FileSystem {
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
 
-        let event = GetPermissionEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(permission)
     }
 
-    async fn set_permission(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        permissions: Permissions,
-    ) -> anyhow::Result<()> {
+    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> anyhow::Result<()> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
         let security_info = BACKUP_SECURITY_INFORMATION;
@@ -208,14 +189,12 @@ impl FileSystemTrait for FileSystem {
             )
             .is_err()
             {
-                Err(IOError::SetMetadataFailed)?;
+                Err(IOError::SetMetadataFailed { path: path.clone() })?;
             }
         }
 
         drop(security_descriptor);
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 }

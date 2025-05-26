@@ -38,6 +38,7 @@ pub enum ComparisonMode {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct BackupOptions {
+    pub mirror: bool,    
     pub lock_source: bool,
     pub backup_permission: bool,
     pub follow_symlinks: bool,
@@ -60,7 +61,6 @@ pub struct BackupTask {
 impl BackupTask {
     pub fn to_worker_task(&self) -> WorkerTask {
         WorkerTask {
-            uuid: self.uuid,
             source_path: self.source_path.clone(),
             destination_path: self.destination_path.clone(),
             backup_type: self.backup_type,
@@ -72,7 +72,6 @@ impl BackupTask {
 
 #[derive(Debug, Clone)]
 pub struct WorkerTask {
-    pub uuid: Uuid,
     pub source_path: PathBuf,
     pub destination_path: PathBuf,
     pub backup_type: BackupType,

@@ -7,7 +7,7 @@ macro_rules! loggable {
             $(
                 $(#[doc = $doc:expr])*
                 #[error($msg:expr)]
-                $variant:ident: $level:expr
+                $variant:ident $({ $($field:ident: $field_type:ty),* $(,)? })? => $level:expr
                 $(,)?
             )*
         }
@@ -18,7 +18,7 @@ macro_rules! loggable {
             $(
                 $(#[doc = $doc])*
                 #[error($msg)]
-                $variant,
+                $variant $({ $($field: $field_type),* })?,
             )*
         }
 
@@ -26,7 +26,7 @@ macro_rules! loggable {
             #[allow(dead_code)]
             pub fn level(&self) -> tracing::Level {
                 match self {
-                    $(Self::$variant => $level,)*
+                    $(Self::$variant $({ $($field: _),* })? => $level,)*
                 }
             }
 
