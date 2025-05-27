@@ -1,6 +1,5 @@
 use crate::model::task::BackupTask;
 use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
-use crate::model::log::database::DatabaseLog;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tokio::fs;
@@ -92,9 +91,6 @@ pub trait DatabaseOpsTrait {
             backup_type,
             comparison_mode,
             options,
-            schedule,
-            last_run_time,
-            next_run_time
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
@@ -105,17 +101,6 @@ pub trait DatabaseOpsTrait {
         .bind(serde_json::to_string(&backup_task.backup_type)?)
         .bind(serde_json::to_string(&backup_task.comparison_mode)?)
         .bind(serde_json::to_string(&backup_task.options)?)
-        .bind(backup_task.schedule)
-        .bind(
-            backup_task
-                .last_run_time
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64),
-        )
-        .bind(
-            backup_task
-                .next_run_time
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64),
-        )
         .execute(&pool)
         .await?;
         Ok(())
@@ -132,9 +117,6 @@ pub trait DatabaseOpsTrait {
             backup_type = ?,
             comparison_mode = ?,
             options = ?,
-            schedule = ?,
-            last_run_time = ?,
-            next_run_time = ?
         WHERE uuid = ?
         "#,
         )
@@ -143,17 +125,6 @@ pub trait DatabaseOpsTrait {
         .bind(serde_json::to_string(&backup_task.backup_type)?)
         .bind(serde_json::to_string(&backup_task.comparison_mode)?)
         .bind(serde_json::to_string(&backup_task.options)?)
-        .bind(backup_task.schedule)
-        .bind(
-            backup_task
-                .last_run_time
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64),
-        )
-        .bind(
-            backup_task
-                .next_run_time
-                .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64),
-        )
         .bind(backup_task.uuid)
         .execute(&pool)
         .await?;

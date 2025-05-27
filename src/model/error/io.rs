@@ -18,12 +18,18 @@ loggable! {
         #[error("Failed to read directory: {path}")]
         ReadDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,
 
+        #[error("Failed to create file: {path}")]
+        CreateFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
         #[error("Failed to read file: {path}")]
         ReadFileFailed { path: PathBuf } => tracing::Level::ERROR,
 
         #[error("Failed to copy file: From {src} To {dst}")]
         CopyFileFailed { src: PathBuf, dst: PathBuf } => tracing::Level::ERROR,
 
+        #[error("Failed to write file: {path}")]
+        WriteFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
         #[error("Failed to delete directory: {path}")]
         DeleteDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,
 
@@ -41,5 +47,8 @@ loggable! {
         
         #[error("Failed to unlock file: {path}")]     
         UnlockFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("File does not exist: {path}")]
+        FileDoesNotExist { path: PathBuf } => tracing::Level::ERROR,
     }
 }

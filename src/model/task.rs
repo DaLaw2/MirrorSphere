@@ -1,13 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::time::SystemTime;
 use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackupState {
     Running,
+    Pending,
     Suspended,
-    Stopped,
+    Completed,
+    Failed,
+    Canceled,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,30 +50,6 @@ pub struct BackupOptions {
 pub struct BackupTask {
     pub uuid: Uuid,
     pub state: BackupState,
-    pub source_path: PathBuf,
-    pub destination_path: PathBuf,
-    pub backup_type: BackupType,
-    pub comparison_mode: Option<ComparisonMode>,
-    pub options: BackupOptions,
-    pub schedule: bool,
-    pub last_run_time: Option<SystemTime>,
-    pub next_run_time: Option<SystemTime>,
-}
-
-impl BackupTask {
-    pub fn to_worker_task(&self) -> WorkerTask {
-        WorkerTask {
-            source_path: self.source_path.clone(),
-            destination_path: self.destination_path.clone(),
-            backup_type: self.backup_type,
-            comparison_mode: self.comparison_mode,
-            options: self.options,       
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkerTask {
     pub source_path: PathBuf,
     pub destination_path: PathBuf,
     pub backup_type: BackupType,

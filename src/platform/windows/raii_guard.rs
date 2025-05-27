@@ -1,7 +1,4 @@
-use crate::model::error::io::IOError;
-use fs4::fs_std::FileExt;
 use std::ops::Deref;
-use std::path::PathBuf;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::PSECURITY_DESCRIPTOR;
 

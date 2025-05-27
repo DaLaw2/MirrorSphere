@@ -33,9 +33,13 @@ pub trait FileSystemTrait {
         Ok(symlink_metadata.file_type().is_symlink())
     }
 
-    async fn create_symlink(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()>;
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> anyhow::Result<()>;
 
-    async fn copy_symlink(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()>;
+    async fn copy_symlink(
+        &self,
+        source_link: &PathBuf,
+        destination_link: &PathBuf,
+    ) -> anyhow::Result<()>;
 
     async fn list_directory(&self, path: &PathBuf) -> anyhow::Result<Vec<PathBuf>> {
         let semaphore = self.semaphore();

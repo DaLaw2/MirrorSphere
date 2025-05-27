@@ -13,7 +13,7 @@ macro_rules! loggable {
         }
     ) => {
         #[allow(dead_code)]
-        #[derive(thiserror::Error, Debug)]
+        #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
         pub enum $enum_name {
             $(
                 $(#[doc = $doc])*

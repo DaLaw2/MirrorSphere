@@ -1,12 +1,11 @@
+use crate::model::error::io::IOError;
+use blake2::{Blake2b512, Blake2s256};
 use digest::{Digest, DynDigest, HashMarker};
 use md5::Md5;
+use sha2::Sha256;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
-use blake2::{Blake2b512, Blake2s256};
-use sha2::Sha256;
-use crate::model::error::io::IOError;
-use crate::model::log::io::IOLog;
 
 pub fn md5(path: PathBuf) -> anyhow::Result<Vec<u8>> {
     let hasher = Md5::new();
@@ -39,11 +38,11 @@ pub fn blake3(path: PathBuf) -> anyhow::Result<Vec<u8>> {
 }
 
 fn file_hash(path: PathBuf, mut hasher: impl HashMarker + DynDigest) -> anyhow::Result<Vec<u8>> {
-    let mut file = File::open(&path)
-        .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
+    let mut file = File::open(&path).map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
     let mut buffer = [0; 65536];
     loop {
-        let bytes_read = file.read(&mut buffer)
+        let bytes_read = file
+            .read(&mut buffer)
             .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
         if bytes_read == 0 {
             break;
