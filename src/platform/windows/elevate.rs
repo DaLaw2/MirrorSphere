@@ -38,68 +38,72 @@ pub fn elevate() -> anyhow::Result<()> {
 }
 
 unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
-    let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
-    let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
+    unsafe {
+        let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
+        let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
 
-    if CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_err() {
-        Err(SystemError::RunAsAdminFailed)?
+        if CoInitializeEx(None, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE).is_err() {
+            Err(SystemError::RunAsAdminFailed)?
+        }
+
+        sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+        sei.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+        sei.lpVerb = PCWSTR(verb.as_ptr());
+        sei.lpFile = PCWSTR(cmd.as_ptr());
+        sei.lpParameters = PCWSTR(args.as_ptr());
+        sei.nShow = SW_NORMAL.0;
+
+        if ShellExecuteExW(&mut sei).is_err() || sei.hProcess.is_invalid() {
+            Err(SystemError::RunAsAdminFailed)?
+        }
+
+        Ok(())
     }
-
-    sei.fMask = SEE_MASK_NOCLOSEPROCESS;
-    sei.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
-    sei.lpVerb = PCWSTR(verb.as_ptr());
-    sei.lpFile = PCWSTR(cmd.as_ptr());
-    sei.lpParameters = PCWSTR(args.as_ptr());
-    sei.nShow = SW_NORMAL.0;
-
-    if ShellExecuteExW(&mut sei).is_err() || sei.hProcess.is_invalid() {
-        Err(SystemError::RunAsAdminFailed)?
-    }
-
-    Ok(())
 }
 
 unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
-    let mut token_handle: HANDLE = HANDLE::default();
+    unsafe {
+        let mut token_handle: HANDLE = HANDLE::default();
 
-    OpenProcessToken(
-        GetCurrentProcess(),
-        TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
-        &mut token_handle,
-    )
-    .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        OpenProcessToken(
+            GetCurrentProcess(),
+            TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
+            &mut token_handle,
+        )
+            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
-    let mut luid = LUID {
-        LowPart: 0,
-        HighPart: 0,
-    };
+        let mut luid = LUID {
+            LowPart: 0,
+            HighPart: 0,
+        };
 
-    LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
-        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
+            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
-    let mut token_privilege = TOKEN_PRIVILEGES {
-        PrivilegeCount: 1,
-        Privileges: [LUID_AND_ATTRIBUTES {
-            Luid: luid,
-            Attributes: SE_PRIVILEGE_ENABLED,
-        }],
-    };
+        let mut token_privilege = TOKEN_PRIVILEGES {
+            PrivilegeCount: 1,
+            Privileges: [LUID_AND_ATTRIBUTES {
+                Luid: luid,
+                Attributes: SE_PRIVILEGE_ENABLED,
+            }],
+        };
 
-    AdjustTokenPrivileges(
-        token_handle,
-        false,
-        Some(&mut token_privilege),
-        0,
-        None,
-        None,
-    )
-    .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        AdjustTokenPrivileges(
+            token_handle,
+            false,
+            Some(&mut token_privilege),
+            0,
+            None,
+            None,
+        )
+            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
-    CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
+        CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 
-    if GetLastError().is_err() {
-        Err(SystemError::AdjustTokenPrivilegesFailed)?
+        if GetLastError().is_err() {
+            Err(SystemError::AdjustTokenPrivilegesFailed)?
+        }
+
+        Ok(())
     }
-
-    Ok(())
 }
