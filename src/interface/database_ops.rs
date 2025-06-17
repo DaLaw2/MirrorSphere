@@ -1,3 +1,6 @@
+use crate::model::error::database::DatabaseError;
+use crate::model::error::misc::MiscError;
+use crate::model::error::Error;
 use crate::model::task::BackupTask;
 use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
 use async_trait::async_trait;
@@ -5,7 +8,6 @@ use sqlx::SqlitePool;
 use tokio::fs;
 use tokio::fs::File;
 use uuid::Uuid;
-use crate::model::error::database::DatabaseError;
 
 #[async_trait]
 pub trait DatabaseOpsTrait {
@@ -17,14 +19,14 @@ pub trait DatabaseOpsTrait {
         fs::metadata(DATABASE_PATH).await.is_ok()
     }
 
-    async fn create_database() -> anyhow::Result<()> {
+    async fn create_database() -> Result<(), Error> {
         let _ = File::create(DATABASE_PATH)
             .await
             .map_err(|_| DatabaseError::CreateDatabaseFailed)?;
         Ok(())
     }
 
-    async fn lock_database() -> anyhow::Result<()> {
+    async fn lock_database() -> Result<(), Error> {
         if fs::metadata(DATABASE_LOCK_PATH).await.is_err() {
             File::create(&DATABASE_LOCK_PATH)
                 .await
@@ -35,7 +37,7 @@ pub trait DatabaseOpsTrait {
         }
     }
 
-    async fn unlock_database() -> anyhow::Result<()> {
+    async fn unlock_database() -> Result<(), Error> {
         fs::remove_file(&DATABASE_LOCK_PATH)
             .await
             .map_err(|_| DatabaseError::UnlockDatabaseFailed)?;
@@ -58,7 +60,7 @@ pub trait DatabaseOpsTrait {
         .unwrap_or(false)
     }
 
-    async fn create_backup_task_table(&self) -> anyhow::Result<()> {
+    async fn create_backup_task_table(&self) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query(
             r#"
@@ -76,11 +78,12 @@ pub trait DatabaseOpsTrait {
             "#,
         )
         .execute(&pool)
-        .await?;
+        .await
+        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
-    async fn add_backup_task(&self, backup_task: BackupTask) -> anyhow::Result<()> {
+    async fn add_backup_task(&self, backup_task: BackupTask) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query(
             r#"
@@ -98,15 +101,22 @@ pub trait DatabaseOpsTrait {
         .bind(backup_task.uuid)
         .bind(backup_task.source_path.to_string_lossy().to_string())
         .bind(backup_task.destination_path.to_string_lossy().to_string())
-        .bind(serde_json::to_string(&backup_task.backup_type)?)
-        .bind(serde_json::to_string(&backup_task.comparison_mode)?)
-        .bind(serde_json::to_string(&backup_task.options)?)
+        .bind(
+            serde_json::to_string(&backup_task.backup_type)
+                .map_err(|_| MiscError::SerializeError)?,
+        )
+        .bind(
+            serde_json::to_string(&backup_task.comparison_mode)
+                .map_err(|_| MiscError::SerializeError)?,
+        )
+        .bind(serde_json::to_string(&backup_task.options).map_err(|_| MiscError::SerializeError)?)
         .execute(&pool)
-        .await?;
+        .await
+        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
-    async fn modify_backup_task(&self, backup_task: BackupTask) -> anyhow::Result<()> {
+    async fn modify_backup_task(&self, backup_task: BackupTask) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query(
             r#"
@@ -122,22 +132,29 @@ pub trait DatabaseOpsTrait {
         )
         .bind(backup_task.source_path.to_string_lossy().to_string())
         .bind(backup_task.destination_path.to_string_lossy().to_string())
-        .bind(serde_json::to_string(&backup_task.backup_type)?)
-        .bind(serde_json::to_string(&backup_task.comparison_mode)?)
-        .bind(serde_json::to_string(&backup_task.options)?)
+        .bind(
+            serde_json::to_string(&backup_task.backup_type)
+                .map_err(|_| MiscError::SerializeError)?,
+        )
+        .bind(
+            serde_json::to_string(&backup_task.comparison_mode)
+                .map_err(|_| MiscError::SerializeError)?,
+        )
+        .bind(serde_json::to_string(&backup_task.options).map_err(|_| MiscError::SerializeError)?)
         .bind(backup_task.uuid)
         .execute(&pool)
-        .await?;
-
+        .await
+        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
-    async fn remove_backup_task(&self, uuid: Uuid) -> anyhow::Result<()> {
+    async fn remove_backup_task(&self, uuid: Uuid) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query("DELETE FROM BackupTasks WHERE uuid = ?")
             .bind(uuid)
             .execute(&pool)
-            .await?;
+            .await
+            .map_err(|_| DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 }

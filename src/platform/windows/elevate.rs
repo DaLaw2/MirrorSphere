@@ -1,4 +1,5 @@
 use crate::model::error::misc::MiscError;
+use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -16,8 +17,9 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
 
-pub fn elevate() -> anyhow::Result<()> {
-    let exe = env::current_exe()?;
+pub fn elevate() -> Result<(), Error> {
+    let exe = env::current_exe()
+        .map_err(|_| SystemError::UnknownError)?;
     let args: Vec<String> = env::args().skip(1).collect();
     let params = args.join(" ");
 
@@ -37,7 +39,7 @@ pub fn elevate() -> anyhow::Result<()> {
     }
 }
 
-unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
+unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> Result<(), Error> {
     unsafe {
         let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
         let verb = "runas\0".encode_utf16().collect::<Vec<u16>>();
@@ -61,7 +63,7 @@ unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> anyhow::Result<()> {
     }
 }
 
-unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
+unsafe fn adjust_token_privileges() -> Result<(), Error> {
     unsafe {
         let mut token_handle: HANDLE = HANDLE::default();
 
@@ -70,7 +72,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
             &mut token_handle,
         )
-            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
         let mut luid = LUID {
             LowPart: 0,
@@ -96,7 +98,7 @@ unsafe fn adjust_token_privileges() -> anyhow::Result<()> {
             None,
             None,
         )
-            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
 
         CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 

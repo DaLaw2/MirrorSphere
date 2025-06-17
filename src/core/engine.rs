@@ -2,6 +2,7 @@ use crate::core::app_config::AppConfig;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
+use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::task::{BackupState, BackupTask, BackupType, ComparisonMode};
@@ -67,7 +68,7 @@ impl Engine {
         instance.tasks.remove(task);
     }
 
-    pub async fn start_task(uuid: Uuid) -> anyhow::Result<()> {
+    pub async fn start_task(uuid: Uuid) -> Result<(), Error> {
         let instance = Self::instance().await;
 
         if instance.running_tasks.contains_key(&uuid) {
@@ -91,7 +92,7 @@ impl Engine {
         Ok(())
     }
 
-    pub async fn suspend_task(uuid: Uuid) -> anyhow::Result<()> {
+    pub async fn suspend_task(uuid: Uuid) -> Result<(), Error> {
         let instance = Self::instance().await;
 
         let mut ref_mut = instance
@@ -114,7 +115,7 @@ impl Engine {
         Ok(())
     }
 
-    pub async fn resume_task(uuid: Uuid) -> anyhow::Result<()> {
+    pub async fn resume_task(uuid: Uuid) -> Result<(), Error> {
         let instance = Self::instance().await;
 
         if instance.running_tasks.contains_key(&uuid) {
@@ -223,7 +224,7 @@ impl Engine {
         task: BackupTask,
         global_queue: Arc<SegQueue<PathBuf>>,
         mut shutdown: OneShotReceiver<()>,
-    ) -> (Vec<PathBuf>, Vec<anyhow::Error>) {
+    ) -> (Vec<PathBuf>, Vec<Error>) {
         let io_manager = IOManager::instance();
 
         let mirror = task.options.mirror;
@@ -285,7 +286,7 @@ impl Engine {
     async fn process_entry(
         task: &BackupTask,
         current_path: &PathBuf,
-    ) -> anyhow::Result<Option<PathBuf>> {
+    ) -> Result<Option<PathBuf>, Error> {
         let io_manager = IOManager::instance();
 
         let source_root = &task.source_path;
@@ -313,7 +314,7 @@ impl Engine {
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
-    ) -> anyhow::Result<Option<PathBuf>> {
+    ) -> Result<Option<PathBuf>, Error> {
         let io_manager = IOManager::instance();
 
         if !destination_path.exists() {
@@ -337,7 +338,7 @@ impl Engine {
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
-    ) -> anyhow::Result<Option<PathBuf>> {
+    ) -> Result<Option<PathBuf>, Error> {
         let io_manager = IOManager::instance();
 
         #[allow(unused_variables)]
@@ -375,7 +376,7 @@ impl Engine {
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         if task.options.follow_symlinks {
             Self::follow_symlink(task, source_path, destination_path).await
         } else {
@@ -387,7 +388,7 @@ impl Engine {
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let io_manager = IOManager::instance();
 
         let mut queue = VecDeque::new();
@@ -441,7 +442,7 @@ impl Engine {
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let io_manager = IOManager::instance();
 
         io_manager
@@ -462,7 +463,7 @@ impl Engine {
     }
 
     #[inline(always)]
-    async fn full_backup(source_path: &PathBuf, destination_path: &PathBuf) -> anyhow::Result<()> {
+    async fn full_backup(source_path: &PathBuf, destination_path: &PathBuf) -> Result<(), Error> {
         let io_manager = IOManager::instance();
         io_manager.copy_file(source_path, destination_path).await
     }
@@ -471,7 +472,7 @@ impl Engine {
         source_path: &PathBuf,
         destination_path: &PathBuf,
         comparison_mode: ComparisonMode,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let io_manager = IOManager::instance();
 
         let need_copy = !match comparison_mode {
@@ -502,7 +503,7 @@ impl Engine {
     async fn mirror_cleanup(
         source_entries: Vec<PathBuf>,
         destination_entries: Vec<PathBuf>,
-    ) -> ((), Vec<anyhow::Error>) {
+    ) -> ((), Vec<Error>) {
         let io_manager = IOManager::instance();
 
         let mut errors = Vec::new();
@@ -535,7 +536,7 @@ impl Engine {
         source_path: &PathBuf,
         source_root: &PathBuf,
         destination_root: &PathBuf,
-    ) -> anyhow::Result<PathBuf> {
+    ) -> Result<PathBuf, Error> {
         let relative_path = source_path
             .strip_prefix(source_root)
             .map_err(|_| SystemError::UnknownError)?;

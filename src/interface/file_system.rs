@@ -1,4 +1,5 @@
 use crate::model::error::io::IOError;
+use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::task::HashType;
 use crate::platform::attributes::*;
@@ -19,7 +20,7 @@ pub trait FileSystemTrait {
 
     fn semaphore(&self) -> Arc<Semaphore>;
 
-    async fn is_symlink(&self, path: &PathBuf) -> anyhow::Result<bool> {
+    async fn is_symlink(&self, path: &PathBuf) -> Result<bool, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -33,15 +34,15 @@ pub trait FileSystemTrait {
         Ok(symlink_metadata.file_type().is_symlink())
     }
 
-    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> anyhow::Result<()>;
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> Result<(), Error>;
 
     async fn copy_symlink(
         &self,
         source_link: &PathBuf,
         destination_link: &PathBuf,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), Error>;
 
-    async fn list_directory(&self, path: &PathBuf) -> anyhow::Result<Vec<PathBuf>> {
+    async fn list_directory(&self, path: &PathBuf) -> Result<Vec<PathBuf>, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -62,7 +63,7 @@ pub trait FileSystemTrait {
         Ok(result)
     }
 
-    async fn create_directory(&self, path: &PathBuf) -> anyhow::Result<()> {
+    async fn create_directory(&self, path: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -75,7 +76,7 @@ pub trait FileSystemTrait {
         Ok(())
     }
 
-    async fn delete_directory(&self, path: &PathBuf) -> anyhow::Result<()> {
+    async fn delete_directory(&self, path: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -88,7 +89,7 @@ pub trait FileSystemTrait {
         Ok(())
     }
 
-    async fn copy_file(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()> {
+    async fn copy_file(&self, source: &PathBuf, destination: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -104,7 +105,7 @@ pub trait FileSystemTrait {
         Ok(())
     }
 
-    async fn delete_file(&self, path: &PathBuf) -> anyhow::Result<()> {
+    async fn delete_file(&self, path: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -117,11 +118,11 @@ pub trait FileSystemTrait {
         Ok(())
     }
 
-    async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes>;
+    async fn get_attributes(&self, path: &PathBuf) -> Result<Attributes, Error>;
 
-    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> anyhow::Result<()>;
+    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> Result<(), Error>;
 
-    async fn copy_attributes(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()> {
+    async fn copy_attributes(&self, source: &PathBuf, destination: &PathBuf) -> Result<(), Error> {
         let source_attributes = self.get_attributes(source).await?;
         self.set_attributes(destination, source_attributes).await?;
         Ok(())
@@ -131,23 +132,23 @@ pub trait FileSystemTrait {
         &self,
         source: &PathBuf,
         destination: &PathBuf,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, Error> {
         let source_attributes = self.get_attributes(source).await?;
         let destination_attributes = self.get_attributes(destination).await?;
         Ok(source_attributes == destination_attributes)
     }
 
-    async fn get_permission(&self, path: &PathBuf) -> anyhow::Result<Permissions>;
+    async fn get_permission(&self, path: &PathBuf) -> Result<Permissions, Error>;
 
-    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> anyhow::Result<()>;
+    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> Result<(), Error>;
 
-    async fn copy_permission(&self, source: &PathBuf, destination: &PathBuf) -> anyhow::Result<()> {
+    async fn copy_permission(&self, source: &PathBuf, destination: &PathBuf) -> Result<(), Error> {
         let source_permissions = self.get_permission(source).await?;
         self.set_permission(destination, source_permissions).await?;
         Ok(())
     }
 
-    async fn acquire_file_lock(&self, path: &PathBuf) -> anyhow::Result<FileLock> {
+    async fn acquire_file_lock(&self, path: &PathBuf) -> Result<FileLock, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -159,7 +160,7 @@ pub trait FileSystemTrait {
         Ok(file_lock)
     }
 
-    async fn calculate_hash(&self, path: &PathBuf, hash_type: HashType) -> anyhow::Result<Vec<u8>> {
+    async fn calculate_hash(&self, path: &PathBuf, hash_type: HashType) -> Result<Vec<u8>, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -187,7 +188,7 @@ pub trait FileSystemTrait {
         &self,
         source: &PathBuf,
         destination: &PathBuf,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -232,7 +233,7 @@ pub trait FileSystemTrait {
         &self,
         source: &PathBuf,
         destination: &PathBuf,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, Error> {
         if !self.standard_compare(source, destination).await? {
             return Ok(false);
         }
@@ -249,7 +250,7 @@ pub trait FileSystemTrait {
         source: &PathBuf,
         destination: &PathBuf,
         hash_type: HashType,
-    ) -> anyhow::Result<bool> {
+    ) -> Result<bool, Error> {
         if !self.advance_compare(source, destination).await? {
             return Ok(false);
         }

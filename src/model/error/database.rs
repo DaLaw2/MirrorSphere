@@ -13,5 +13,8 @@ loggable! {
 
         #[error("Failed to unlock database")]
         UnlockDatabaseFailed => tracing::Level::ERROR,
+        
+        #[error("Failed to execute SQL statement")]
+        StatementExecutionFailed  => tracing::Level::ERROR,
     }
 }

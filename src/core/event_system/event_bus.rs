@@ -3,10 +3,11 @@ use crate::core::event_system::listener_group::ListenerGroup;
 use crate::interface::event_system::actor::Actor;
 use crate::interface::event_system::event::Event;
 use crate::interface::event_system::event_handler::EventHandler;
+use crate::model::error::Error;
+use crate::model::error::system::SystemError;
 use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::OnceLock;
-use crate::model::error::system::SystemError;
 
 static EVENT_BUS: OnceLock<EventBus> = OnceLock::new();
 
@@ -28,7 +29,7 @@ impl EventBus {
     pub async fn subscribe<A: Actor, E: Event>(
         actor: &ActorRef<A>,
         handler: impl EventHandler<A, E> + Send + Sync + 'static,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
         let mut entry = instance
@@ -43,7 +44,7 @@ impl EventBus {
         Ok(())
     }
 
-    pub async fn publish<E: Event>(event: E) -> anyhow::Result<()> {
+    pub async fn publish<E: Event>(event: E) -> Result<(), Error> {
         let instance = Self::instance();
         let type_id = TypeId::of::<ListenerGroup<E>>();
         if let Some(listeners) = instance.listeners.get_mut(&type_id) {

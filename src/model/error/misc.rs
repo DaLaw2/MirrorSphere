@@ -7,8 +7,17 @@ loggable! {
 
         #[error("Unexpected error type")]
         UnexpectedErrorType => tracing::Level::ERROR,
-        
+
+        #[error("Failed to encode bincode")]
+        BincodeEncodeError => tracing::Level::ERROR,
+
         #[error("Failed to decode bincode")]
         BincodeDecodeError => tracing::Level::ERROR,
+        
+        #[error("Failed to serialize object")]
+        SerializeError => tracing::Level::ERROR,
+        
+        #[error("Failed to deserialize object")]
+        DeserializeError => tracing::Level::ERROR,
     }
 }

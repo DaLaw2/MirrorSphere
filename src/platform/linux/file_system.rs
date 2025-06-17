@@ -28,7 +28,7 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> anyhow::Result<()> {
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -49,7 +49,7 @@ impl FileSystemTrait for FileSystem {
         &self,
         source_link: &PathBuf,
         destination_link: &PathBuf,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -64,7 +64,7 @@ impl FileSystemTrait for FileSystem {
             })?;
     }
 
-    async fn get_attributes(&self, path: &PathBuf) -> anyhow::Result<Attributes> {
+    async fn get_attributes(&self, path: &PathBuf) -> Result<Attributes, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -110,7 +110,7 @@ impl FileSystemTrait for FileSystem {
         Ok(attributes)
     }
 
-    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> anyhow::Result<()> {
+    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -133,7 +133,7 @@ impl FileSystemTrait for FileSystem {
 
             Self::set_file_times(&path, &attributes)?;
 
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), Error>(())
         })
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
@@ -141,7 +141,7 @@ impl FileSystemTrait for FileSystem {
         Ok(())
     }
 
-    async fn get_permission(&self, path: &PathBuf) -> anyhow::Result<Permissions> {
+    async fn get_permission(&self, path: &PathBuf) -> Result<Permissions, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -158,7 +158,7 @@ impl FileSystemTrait for FileSystem {
             let gid = metadata.gid();
             let mode = metadata.mode();
 
-            Ok::<Permissions, anyhow::Error>(Permissions {
+            Ok::<Permissions, Error>(Permissions {
                 uid,
                 gid,
                 mode,
@@ -173,7 +173,7 @@ impl FileSystemTrait for FileSystem {
         Ok(permission)
     }
 
-    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> anyhow::Result<()> {
+    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -208,7 +208,7 @@ impl FileSystemTrait for FileSystem {
                 }
             }
 
-            Ok::<(), anyhow::Error>(())
+            Ok::<(), Error>(())
         })
         .await
         .map_err(|_| SystemError::ThreadPanic)??;
@@ -218,7 +218,7 @@ impl FileSystemTrait for FileSystem {
 }
 
 impl FileSystem {
-    fn set_file_times(path: &PathBuf, attributes: &Attributes) -> anyhow::Result<()> {
+    fn set_file_times(path: &PathBuf, attributes: &Attributes) -> Result<(), Error> {
         let c_path = CString::new(path.to_string_lossy().as_bytes())
             .map_err(|_| IOError::SetMetadataFailed)?;
 
@@ -236,7 +236,7 @@ impl FileSystem {
         Ok(())
     }
 
-    fn system_time_to_timespec(system_time: SystemTime) -> anyhow::Result<libc::timespec> {
+    fn system_time_to_timespec(system_time: SystemTime) -> Result<libc::timespec, Error> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
             .map_err(|_| SystemError::InternalError)?;
