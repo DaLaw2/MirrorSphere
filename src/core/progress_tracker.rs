@@ -7,6 +7,7 @@ use crate::platform::constants::PROGRESS_SAVE_PATH;
 use memmap2::MmapMut;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::fs::OpenOptions;
 use uuid::Uuid;
 
@@ -16,10 +17,17 @@ struct ProgressData {
     errors: Vec<Error>,
 }
 
-pub struct ProgressTracker;
+pub struct ProgressTracker {
+    io_manager: Arc<IOManager>,
+}
 
 impl ProgressTracker {
+    pub fn new(io_manager: Arc<IOManager>) -> ProgressTracker {
+        ProgressTracker { io_manager }
+    }
+
     pub async fn save_task(
+        &self,
         task_uuid: Uuid,
         current_level: Vec<PathBuf>,
         errors: Vec<Error>,
@@ -29,20 +37,20 @@ impl ProgressTracker {
             errors,
         };
 
-        Self::write_progress_file(task_uuid, &progress_data).await
+        self.write_progress_file(task_uuid, &progress_data).await
     }
 
-    pub async fn resume_task(task_uuid: Uuid) -> (Vec<PathBuf>, Vec<Error>) {
-        match Self::read_progress_file(task_uuid).await {
+    pub async fn resume_task(&self, task_uuid: Uuid) -> (Vec<PathBuf>, Vec<Error>) {
+        match self.read_progress_file(task_uuid).await {
             Ok(progress_data) => {
-                let anyhow_errors = Self::convert_back_errors(progress_data.errors);
+                let anyhow_errors = self.convert_back_errors(progress_data.errors);
                 (progress_data.current_level, anyhow_errors)
             }
             Err(_) => (Vec::new(), Vec::new()),
         }
     }
 
-    fn convert_back_errors(errors: Vec<Error>) -> Vec<Error> {
+    fn convert_back_errors(&self, errors: Vec<Error>) -> Vec<Error> {
         errors
             .into_iter()
             .map(|err| match err {
@@ -56,11 +64,11 @@ impl ProgressTracker {
             .collect()
     }
 
-    async fn write_progress_file(task_uuid: Uuid, data: &ProgressData) -> Result<(), Error> {
+    async fn write_progress_file(&self, task_uuid: Uuid, data: &ProgressData) -> Result<(), Error> {
         let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(task_uuid.to_string());
 
         if let Some(parent) = saved_path.parent() {
-            let instance = IOManager::instance();
+            let instance = self.io_manager.clone();
             let parent = parent.to_path_buf();
             instance.create_directory(&parent).await?;
         }
@@ -98,7 +106,7 @@ impl ProgressTracker {
         Ok(())
     }
 
-    async fn read_progress_file(task_uuid: Uuid) -> Result<ProgressData, Error> {
+    async fn read_progress_file(&self, task_uuid: Uuid) -> Result<ProgressData, Error> {
         let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(task_uuid.to_string());
 
         if !saved_path.exists() {

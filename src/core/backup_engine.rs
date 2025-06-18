@@ -2,51 +2,52 @@ use crate::core::app_config::AppConfig;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
-use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
+use crate::model::error::Error;
 use crate::model::task::{BackupState, BackupTask, BackupType, ComparisonMode};
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::{Receiver as OneShotReceiver, Sender as OneShotSender};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-pub static BACKUP_ENGINE: OnceLock<BackupEngine> = OnceLock::new();
-
-#[derive(Debug)]
 pub struct BackupEngine {
-    tasks: DashMap<Uuid, BackupTask>,
-    running_tasks: DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>,
+    config: Arc<AppConfig>,
+    io_manager: Arc<IOManager>,
+    progress_tracker: Arc<ProgressTracker>,
+    tasks: Arc<DashMap<Uuid, BackupTask>>,
+    running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
 }
 
 impl BackupEngine {
-    pub async fn initialize() {
-        let instance = BackupEngine {
-            tasks: DashMap::new(),
-            running_tasks: DashMap::new(),
-        };
-        BACKUP_ENGINE.set(instance).unwrap();
+    pub async fn new(
+        config: Arc<AppConfig>,
+        io_manager: Arc<IOManager>,
+        progress_tracker: Arc<ProgressTracker>,
+    ) -> BackupEngine {
+        BackupEngine {
+            config,
+            io_manager,
+            progress_tracker,
+            tasks: Arc::new(DashMap::new()),
+            running_tasks: Arc::new(DashMap::new()),
+        }
     }
 
-    pub async fn instance() -> &'static BackupEngine {
-        BACKUP_ENGINE.get().unwrap()
-    }
-
-    pub async fn terminate() {
-        let instance = Self::instance().await;
-        let keys: Vec<Uuid> = instance
+    pub async fn terminate(&self) {
+        let keys: Vec<Uuid> = self
             .running_tasks
             .iter()
             .map(|pair| pair.key().clone())
             .collect();
         for uuid in keys {
-            if let Some((_, (shutdown, handle))) = instance.running_tasks.remove(&uuid) {
+            if let Some((_, (shutdown, handle))) = self.running_tasks.remove(&uuid) {
                 if shutdown.send(()).is_err() {
                     TaskError::StopTaskFailed.log();
                     continue;
@@ -58,47 +59,36 @@ impl BackupEngine {
         }
     }
 
-    pub async fn add_task(task: BackupTask) {
-        let instance = Self::instance().await;
-        instance.tasks.insert(task.uuid, task);
+    pub async fn add_task(&self, task: BackupTask) {
+        self.tasks.insert(task.uuid, task);
     }
 
-    pub async fn remove_task(task: &Uuid) {
-        let instance = Self::instance().await;
-        instance.tasks.remove(task);
+    pub async fn remove_task(&self, task: &Uuid) {
+        self.tasks.remove(task);
     }
 
-    pub async fn start_task(uuid: Uuid) -> Result<(), Error> {
-        let instance = Self::instance().await;
-
-        if instance.running_tasks.contains_key(&uuid) {
+    pub async fn start_task(&self, uuid: Uuid) -> Result<(), Error> {
+        if self.running_tasks.contains_key(&uuid) {
             Err(TaskError::IllegalTaskState)?
         }
 
-        let mut ref_mut = instance
-            .tasks
-            .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+        let mut ref_mut = self.tasks.get_mut(&uuid).ok_or(TaskError::TaskNotFound)?;
         let task = ref_mut.value_mut();
         if task.state != BackupState::Pending {
             Err(TaskError::IllegalTaskState)?
         }
         task.state = BackupState::Running;
 
+        let task_runner = self.to_task_runner();
         let task = task.clone();
         let (tx, rx) = oneshot::channel();
-        let handle = tokio::spawn(async move { BackupEngine::run_backup_task(task, rx, false).await });
-        instance.running_tasks.insert(uuid, (tx, handle));
+        let handle = tokio::spawn(async move { task_runner.run(task, rx, false).await });
+        self.running_tasks.insert(uuid, (tx, handle));
         Ok(())
     }
 
-    pub async fn suspend_task(uuid: Uuid) -> Result<(), Error> {
-        let instance = Self::instance().await;
-
-        let mut ref_mut = instance
-            .tasks
-            .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+    pub async fn suspend_task(&self, uuid: Uuid) -> Result<(), Error> {
+        let mut ref_mut = self.tasks.get_mut(&uuid).ok_or(TaskError::TaskNotFound)?;
         let task = ref_mut.value_mut();
         if task.state != BackupState::Running {
             Err(TaskError::IllegalTaskState)?
@@ -106,7 +96,7 @@ impl BackupEngine {
         task.state = BackupState::Suspended;
         drop(ref_mut);
 
-        let (_, (shutdown, handle)) = instance
+        let (_, (shutdown, handle)) = self
             .running_tasks
             .remove(&uuid)
             .ok_or(TaskError::TaskNotFound)?;
@@ -115,35 +105,67 @@ impl BackupEngine {
         Ok(())
     }
 
-    pub async fn resume_task(uuid: Uuid) -> Result<(), Error> {
-        let instance = Self::instance().await;
-
-        if instance.running_tasks.contains_key(&uuid) {
+    pub async fn resume_task(&self, uuid: Uuid) -> Result<(), Error> {
+        if self.running_tasks.contains_key(&uuid) {
             Err(TaskError::IllegalTaskState)?
         }
 
-        let mut ref_mut = instance
-            .tasks
-            .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+        let mut ref_mut = self.tasks.get_mut(&uuid).ok_or(TaskError::TaskNotFound)?;
         let task = ref_mut.value_mut();
         if task.state != BackupState::Suspended {
             Err(TaskError::IllegalTaskState)?
         }
         task.state = BackupState::Running;
 
+        let task_runner = self.to_task_runner();
         let task = task.clone();
         let (tx, rx) = oneshot::channel();
-        let handle = tokio::spawn(async move { BackupEngine::run_backup_task(task, rx, true).await });
-        instance.running_tasks.insert(uuid, (tx, handle));
+        let handle = tokio::spawn(async move { task_runner.run(task, rx, true).await });
+        self.running_tasks.insert(uuid, (tx, handle));
         Ok(())
     }
 
-    async fn run_backup_task(task: BackupTask, mut shutdown: OneShotReceiver<()>, resume: bool) {
-        let config = AppConfig::new().await;
+    fn to_task_runner(&self) -> BackupTaskRunner {
+        let config = self.config.clone();
+        let io_manager = self.io_manager.clone();
+        let progress_tracker = self.progress_tracker.clone();
+        let tasks = self.tasks.clone();
+        let running_tasks = self.running_tasks.clone();
+        BackupTaskRunner::new(config, io_manager, progress_tracker, tasks, running_tasks)
+    }
+}
+
+struct BackupTaskRunner {
+    config: Arc<AppConfig>,
+    io_manager: Arc<IOManager>,
+    progress_tracker: Arc<ProgressTracker>,
+    tasks: Arc<DashMap<Uuid, BackupTask>>,
+    running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
+}
+
+impl BackupTaskRunner {
+    pub fn new(
+        config: Arc<AppConfig>,
+        io_manager: Arc<IOManager>,
+        progress_tracker: Arc<ProgressTracker>,
+        tasks: Arc<DashMap<Uuid, BackupTask>>,
+        running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
+    ) -> BackupTaskRunner {
+        BackupTaskRunner {
+            config,
+            io_manager,
+            progress_tracker,
+            tasks,
+            running_tasks,
+        }
+    }
+
+    async fn run(&self, task: BackupTask, mut shutdown: OneShotReceiver<()>, resume: bool) {
+        let config = self.config.clone();
+        let progress_tracker = self.progress_tracker.clone();
 
         let (mut current_level, mut errors) = if resume {
-            ProgressTracker::resume_task(task.uuid).await
+            progress_tracker.resume_task(task.uuid).await
         } else {
             let source_root = task.source_path.clone();
             (vec![source_root], Vec::new())
@@ -161,11 +183,11 @@ impl BackupEngine {
             let mut worker_shutdowns = Vec::new();
 
             for _ in 0..config.max_concurrency {
+                let worker = self.to_backup_worker();
                 let (tx, rx) = oneshot::channel();
                 let task = task.clone();
                 let queue = global_queue.clone();
-                let handle =
-                    tokio::spawn(async move { Self::worker_thread(task, queue, rx).await });
+                let handle = tokio::spawn(async move { worker.run(task, queue, rx).await });
                 worker_shutdowns.push(tx);
                 worker_handles.push(handle);
             }
@@ -196,18 +218,18 @@ impl BackupEngine {
 
             if shutdown_flag {
                 current_level.extend(next_level);
-                ProgressTracker::save_task(task.uuid, current_level, errors).await;
+                progress_tracker
+                    .save_task(task.uuid, current_level, errors)
+                    .await;
                 break;
             } else {
                 current_level = next_level;
             }
         }
 
-        let instance = Self::instance().await;
+        self.running_tasks.remove(&task.uuid);
 
-        instance.running_tasks.remove(&task.uuid);
-
-        match instance.tasks.get_mut(&task.uuid) {
+        match self.tasks.get_mut(&task.uuid) {
             Some(mut ref_mut) => {
                 let task = ref_mut.value_mut();
                 if shutdown_flag {
@@ -220,12 +242,40 @@ impl BackupEngine {
         }
     }
 
-    async fn worker_thread(
+    fn to_backup_worker(&self) -> BackupWorker {
+        let config = self.config.clone();
+        let io_manager = self.io_manager.clone();
+        let progress_tracker = self.progress_tracker.clone();
+        BackupWorker::new(config, io_manager, progress_tracker)
+    }
+}
+
+struct BackupWorker {
+    config: Arc<AppConfig>,
+    io_manager: Arc<IOManager>,
+    progress_tracker: Arc<ProgressTracker>,
+}
+
+impl BackupWorker {
+    pub fn new(
+        config: Arc<AppConfig>,
+        io_manager: Arc<IOManager>,
+        progress_tracker: Arc<ProgressTracker>,
+    ) -> BackupWorker {
+        BackupWorker {
+            config,
+            io_manager,
+            progress_tracker,
+        }
+    }
+
+    async fn run(
+        &self,
         task: BackupTask,
         global_queue: Arc<SegQueue<PathBuf>>,
         mut shutdown: OneShotReceiver<()>,
     ) -> (Vec<PathBuf>, Vec<Error>) {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         let mirror = task.options.mirror;
 
@@ -249,7 +299,7 @@ impl BackupEngine {
                 if shutdown.try_recv().is_ok() {
                     break;
                 }
-                match Self::process_entry(&task, entry).await {
+                match self.process_entry(&task, entry).await {
                     Ok(Some(path)) => next_level.push(path),
                     Ok(None) => {}
                     Err(e) => errors.push(e),
@@ -258,7 +308,7 @@ impl BackupEngine {
 
             if mirror {
                 let source_entries = entries;
-                let destination_dir = match Self::calculate_destination_path(
+                let destination_dir = match self.calculate_destination_path(
                     &current_dir,
                     &task.source_path,
                     &task.destination_path,
@@ -271,8 +321,9 @@ impl BackupEngine {
                 };
                 match io_manager.list_directory(&destination_dir).await {
                     Ok(destination_entries) => {
-                        let (_, mirror_errors) =
-                            Self::mirror_cleanup(source_entries, destination_entries).await;
+                        let (_, mirror_errors) = self
+                            .mirror_cleanup(source_entries, destination_entries)
+                            .await;
                         errors.extend(mirror_errors);
                     }
                     Err(e) => errors.push(e),
@@ -284,38 +335,43 @@ impl BackupEngine {
     }
 
     async fn process_entry(
+        &self,
         task: &BackupTask,
         current_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         let source_root = &task.source_path;
         let destination_root = &task.destination_path;
 
         let source_path = current_path.clone();
         let destination_path =
-            Self::calculate_destination_path(&source_path, &source_root, &destination_root)?;
+            self.calculate_destination_path(&source_path, &source_root, &destination_root)?;
 
         let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
 
         if is_symlink {
-            Self::process_symlink(task, &source_path, &destination_path).await?;
+            self.process_symlink(task, &source_path, &destination_path)
+                .await?;
             return Ok(None);
         }
 
         if source_path.is_dir() {
-            Self::backup_directory(task, &source_path, &destination_path).await
+            self.backup_directory(task, &source_path, &destination_path)
+                .await
         } else {
-            Self::backup_file(task, &source_path, &destination_path).await
+            self.backup_file(task, &source_path, &destination_path)
+                .await
         }
     }
 
     async fn backup_directory(
+        &self,
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         if !destination_path.exists() {
             io_manager.create_directory(&destination_path).await?;
@@ -335,11 +391,12 @@ impl BackupEngine {
     }
 
     async fn backup_file(
+        &self,
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         #[allow(unused_variables)]
         let mut file_lock = None;
@@ -349,10 +406,11 @@ impl BackupEngine {
         }
 
         match task.backup_type {
-            BackupType::Full => Self::full_backup(source_path, destination_path).await?,
+            BackupType::Full => self.full_backup(source_path, destination_path).await?,
             BackupType::Incremental => {
                 let comparison_mode = task.comparison_mode.ok_or(SystemError::UnknownError)?;
-                Self::incremental_backup(source_path, destination_path, comparison_mode).await?
+                self.incremental_backup(source_path, destination_path, comparison_mode)
+                    .await?
             }
         }
 
@@ -373,23 +431,26 @@ impl BackupEngine {
 
     #[inline(always)]
     async fn process_symlink(
+        &self,
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
         if task.options.follow_symlinks {
-            Self::follow_symlink(task, source_path, destination_path).await
+            self.follow_symlink(task, source_path, destination_path)
+                .await
         } else {
-            Self::copy_symlink(task, source_path, destination_path).await
+            self.copy_symlink(task, source_path, destination_path).await
         }
     }
 
     async fn follow_symlink(
+        &self,
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
@@ -416,7 +477,8 @@ impl BackupEngine {
             visited.insert(canonical_path.clone());
 
             if canonical_path.is_dir() {
-                Self::backup_directory(task, &canonical_path, &current_dest).await?;
+                self.backup_directory(task, &canonical_path, &current_dest)
+                    .await?;
 
                 let entries = io_manager.list_directory(&canonical_path).await?;
                 for entry in entries {
@@ -431,7 +493,8 @@ impl BackupEngine {
                     queue.push_back((entry, new_destination));
                 }
             } else {
-                Self::backup_file(task, &canonical_path, &current_dest).await?;
+                self.backup_file(task, &canonical_path, &current_dest)
+                    .await?;
             }
         }
 
@@ -439,11 +502,12 @@ impl BackupEngine {
     }
 
     async fn copy_symlink(
+        &self,
         task: &BackupTask,
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         io_manager
             .copy_symlink(source_path, destination_path)
@@ -463,17 +527,22 @@ impl BackupEngine {
     }
 
     #[inline(always)]
-    async fn full_backup(source_path: &PathBuf, destination_path: &PathBuf) -> Result<(), Error> {
-        let io_manager = IOManager::instance();
+    async fn full_backup(
+        &self,
+        source_path: &PathBuf,
+        destination_path: &PathBuf,
+    ) -> Result<(), Error> {
+        let io_manager = self.io_manager.clone();
         io_manager.copy_file(source_path, destination_path).await
     }
 
     async fn incremental_backup(
+        &self,
         source_path: &PathBuf,
         destination_path: &PathBuf,
         comparison_mode: ComparisonMode,
     ) -> Result<(), Error> {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         let need_copy = !match comparison_mode {
             ComparisonMode::Standard => {
@@ -501,10 +570,11 @@ impl BackupEngine {
     }
 
     async fn mirror_cleanup(
+        &self,
         source_entries: Vec<PathBuf>,
         destination_entries: Vec<PathBuf>,
     ) -> ((), Vec<Error>) {
-        let io_manager = IOManager::instance();
+        let io_manager = self.io_manager.clone();
 
         let mut errors = Vec::new();
 
@@ -533,6 +603,7 @@ impl BackupEngine {
     }
 
     fn calculate_destination_path(
+        &self,
         source_path: &PathBuf,
         source_root: &PathBuf,
         destination_root: &PathBuf,
