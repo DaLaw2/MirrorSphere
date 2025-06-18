@@ -5,31 +5,21 @@ use std::ops::Deref;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::Semaphore;
 
-pub static IO_MANAGER: OnceLock<IOManager> = OnceLock::new();
-
 pub struct IOManager {
     file_system: FileSystem,
 }
 
 impl IOManager {
-    pub async fn initialize() {
-        let config = AppConfig::fetch().await;
+    pub async fn new(config: Arc<AppConfig>) -> IOManager {
         let max_file_operations = config.max_file_operations;
         let semaphore = Arc::new(Semaphore::new(max_file_operations));
-        let instance = IOManager {
+        IOManager {
             file_system: FileSystem::new(semaphore),
-        };
-        IO_MANAGER.get_or_init(|| instance);
+        }
     }
 
-    pub fn instance() -> &'static IOManager {
-        // Initialization has been ensured
-        IO_MANAGER.get().unwrap()
-    }
-
-    pub fn terminate() {
-        let instance = Self::instance();
-        instance.file_system.semaphore().close();
+    pub fn terminate(&self) {
+        self.file_system.semaphore().close();
     }
 }
 

@@ -17,25 +17,25 @@ use tokio::sync::oneshot::{Receiver as OneShotReceiver, Sender as OneShotSender}
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
-pub static ENGINE: OnceLock<Engine> = OnceLock::new();
+pub static BACKUP_ENGINE: OnceLock<BackupEngine> = OnceLock::new();
 
 #[derive(Debug)]
-pub struct Engine {
+pub struct BackupEngine {
     tasks: DashMap<Uuid, BackupTask>,
     running_tasks: DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>,
 }
 
-impl Engine {
+impl BackupEngine {
     pub async fn initialize() {
-        let instance = Engine {
+        let instance = BackupEngine {
             tasks: DashMap::new(),
             running_tasks: DashMap::new(),
         };
-        ENGINE.set(instance).unwrap();
+        BACKUP_ENGINE.set(instance).unwrap();
     }
 
-    pub async fn instance() -> &'static Engine {
-        ENGINE.get().unwrap()
+    pub async fn instance() -> &'static BackupEngine {
+        BACKUP_ENGINE.get().unwrap()
     }
 
     pub async fn terminate() {
@@ -87,7 +87,7 @@ impl Engine {
 
         let task = task.clone();
         let (tx, rx) = oneshot::channel();
-        let handle = tokio::spawn(async move { Engine::run_backup_task(task, rx, false).await });
+        let handle = tokio::spawn(async move { BackupEngine::run_backup_task(task, rx, false).await });
         instance.running_tasks.insert(uuid, (tx, handle));
         Ok(())
     }
@@ -134,13 +134,13 @@ impl Engine {
 
         let task = task.clone();
         let (tx, rx) = oneshot::channel();
-        let handle = tokio::spawn(async move { Engine::run_backup_task(task, rx, true).await });
+        let handle = tokio::spawn(async move { BackupEngine::run_backup_task(task, rx, true).await });
         instance.running_tasks.insert(uuid, (tx, handle));
         Ok(())
     }
 
     async fn run_backup_task(task: BackupTask, mut shutdown: OneShotReceiver<()>, resume: bool) {
-        let config = AppConfig::fetch().await;
+        let config = AppConfig::new().await;
 
         let (mut current_level, mut errors) = if resume {
             ProgressTracker::resume_task(task.uuid).await

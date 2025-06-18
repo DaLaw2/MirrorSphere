@@ -10,7 +10,7 @@ mod r#macro;
 
 #[tokio::main]
 async fn main() {
-    System::initialize().await;
+    System::new().await;
     System::run().await;
     System::terminate().await;
 }
