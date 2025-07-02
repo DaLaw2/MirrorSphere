@@ -30,8 +30,8 @@ impl BackupEngine {
         config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
-    ) -> BackupEngine {
-        BackupEngine {
+    ) -> Self {
+        Self {
             config,
             io_manager,
             progress_tracker,
@@ -150,8 +150,8 @@ impl BackupTaskRunner {
         progress_tracker: Arc<ProgressTracker>,
         tasks: Arc<DashMap<Uuid, BackupTask>>,
         running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
-    ) -> BackupTaskRunner {
-        BackupTaskRunner {
+    ) -> Self {
+        Self {
             config,
             io_manager,
             progress_tracker,
@@ -161,8 +161,8 @@ impl BackupTaskRunner {
     }
 
     async fn run(&self, task: BackupTask, mut shutdown: OneShotReceiver<()>, resume: bool) {
-        let config = self.config.clone();
-        let progress_tracker = self.progress_tracker.clone();
+        let config = &self.config;
+        let progress_tracker = &self.progress_tracker;
 
         let (mut current_level, mut errors) = if resume {
             progress_tracker.resume_task(task.uuid).await
@@ -218,9 +218,10 @@ impl BackupTaskRunner {
 
             if shutdown_flag {
                 current_level.extend(next_level);
-                progress_tracker
+                let _ = progress_tracker
                     .save_task(task.uuid, current_level, errors)
                     .await;
+                unimplemented!("Need handle error");
                 break;
             } else {
                 current_level = next_level;
@@ -261,8 +262,8 @@ impl BackupWorker {
         config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
-    ) -> BackupWorker {
-        BackupWorker {
+    ) -> Self {
+        Self {
             config,
             io_manager,
             progress_tracker,
@@ -275,7 +276,7 @@ impl BackupWorker {
         global_queue: Arc<SegQueue<PathBuf>>,
         mut shutdown: OneShotReceiver<()>,
     ) -> (Vec<PathBuf>, Vec<Error>) {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         let mirror = task.options.mirror;
 
@@ -339,7 +340,7 @@ impl BackupWorker {
         task: &BackupTask,
         current_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         let source_root = &task.source_path;
         let destination_root = &task.destination_path;
@@ -371,7 +372,7 @@ impl BackupWorker {
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         if !destination_path.exists() {
             io_manager.create_directory(&destination_path).await?;
@@ -396,7 +397,7 @@ impl BackupWorker {
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<Option<PathBuf>, Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         #[allow(unused_variables)]
         let mut file_lock = None;
@@ -450,7 +451,7 @@ impl BackupWorker {
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
@@ -507,7 +508,7 @@ impl BackupWorker {
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         io_manager
             .copy_symlink(source_path, destination_path)
@@ -532,7 +533,7 @@ impl BackupWorker {
         source_path: &PathBuf,
         destination_path: &PathBuf,
     ) -> Result<(), Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
         io_manager.copy_file(source_path, destination_path).await
     }
 
@@ -542,7 +543,7 @@ impl BackupWorker {
         destination_path: &PathBuf,
         comparison_mode: ComparisonMode,
     ) -> Result<(), Error> {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         let need_copy = !match comparison_mode {
             ComparisonMode::Standard => {
@@ -574,7 +575,7 @@ impl BackupWorker {
         source_entries: Vec<PathBuf>,
         destination_entries: Vec<PathBuf>,
     ) -> ((), Vec<Error>) {
-        let io_manager = self.io_manager.clone();
+        let io_manager = &self.io_manager;
 
         let mut errors = Vec::new();
 

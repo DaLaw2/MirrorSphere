@@ -21,7 +21,7 @@ pub struct FileSystem {
 #[async_trait]
 impl FileSystemTrait for FileSystem {
     fn new(semaphore: Arc<Semaphore>) -> Self {
-        FileSystem { semaphore }
+        Self { semaphore }
     }
 
     fn semaphore(&self) -> Arc<Semaphore> {

@@ -11,7 +11,10 @@ pub struct ActorDispatcher<A: Actor, E: Event> {
 }
 
 impl<A: Actor, E: Event> ActorDispatcher<A, E> {
-    pub fn new(actor: ActorRef<A>, handler: Box<dyn EventHandler<A, E> + Send + Sync + 'static>) -> Self {
+    pub fn new(
+        actor: ActorRef<A>,
+        handler: Box<dyn EventHandler<A, E> + Send + Sync + 'static>,
+    ) -> Self {
         Self { actor, handler }
     }
 }

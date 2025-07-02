@@ -11,7 +11,7 @@ pub struct FileLock {
 }
 
 impl FileLock {
-    pub async fn new(path: &PathBuf) -> Result<FileLock, Error> {
+    pub async fn new(path: &PathBuf) -> Result<Self, Error> {
         let file = File::open(path)
             .await
             .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;

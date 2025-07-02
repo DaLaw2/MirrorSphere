@@ -14,9 +14,8 @@ pub struct DatabaseManager {
 }
 
 impl DatabaseManager {
-    pub async fn new() -> Result<DatabaseManager, Error> {
+    pub async fn new() -> Result<Self, Error> {
         SystemLog::Initializing.log();
-        DatabaseOps::lock_database().await?;
         if !DatabaseOps::exist_database().await {
             DatabaseOps::create_database().await?;
         }
@@ -24,7 +23,7 @@ impl DatabaseManager {
             .await
             .map_err(|_| DatabaseError::DatabaseConnectFailed)?;
         DatabaseLog::DatabaseConnectSuccess.log();
-        let database_manager = DatabaseManager {
+        let database_manager = Self {
             ops: DatabaseOps::new(pool),
         };
         if !database_manager.exist_table("BackupTasks").await {
@@ -36,7 +35,6 @@ impl DatabaseManager {
 
     pub async fn terminate(&self) {
         self.close_connection().await;
-        let _ = DatabaseOps::unlock_database().await;
     }
 }
 

@@ -10,10 +10,10 @@ pub struct IOManager {
 }
 
 impl IOManager {
-    pub async fn new(config: Arc<AppConfig>) -> IOManager {
+    pub fn new(config: Arc<AppConfig>) -> Self {
         let max_file_operations = config.max_file_operations;
         let semaphore = Arc::new(Semaphore::new(max_file_operations));
-        IOManager {
+        Self {
             file_system: FileSystem::new(semaphore),
         }
     }

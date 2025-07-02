@@ -10,7 +10,7 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub async fn new() -> Result<AppConfig, Error> {
+    pub fn new() -> Result<Self, Error> {
         SystemLog::Initializing.log();
         let config = Self::load_config_file()?;
         SystemLog::InitializeComplete.log();

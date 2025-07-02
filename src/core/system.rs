@@ -1,6 +1,7 @@
 use crate::core::app_config::AppConfig;
 use crate::core::backup_engine::BackupEngine;
 use crate::core::database_manager::DatabaseManager;
+use crate::core::event_system::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
 use crate::model::error::system::SystemError;
@@ -11,13 +12,16 @@ use crate::utils::logging::Logging;
 use privilege::user::privileged;
 use std::process;
 use std::sync::Arc;
+use crate::utils::database_lock::DatabaseLock;
 
 pub struct System {
     pub app_config: Arc<AppConfig>,
+    pub event_bus: Arc<EventBus>,
     pub io_manager: Arc<IOManager>,
     pub progress_tracker: Arc<ProgressTracker>,
     pub database_manager: Arc<DatabaseManager>,
     pub backup_engine: Arc<BackupEngine>,
+    pub database_lock: DatabaseLock,
 }
 
 impl System {
@@ -29,9 +33,11 @@ impl System {
             elevate().map_err(|_| SystemError::RunAsAdminFailed)?;
             process::exit(0);
         }
-        let app_config = Arc::new(AppConfig::new().await?);
-        let io_manager = Arc::new(IOManager::new(app_config.clone()).await);
+        let app_config = Arc::new(AppConfig::new()?);
+        let event_bus = Arc::new(EventBus::new());
+        let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
+        let database_lock = DatabaseLock::acquire().await?;
         let database_manager = Arc::new(DatabaseManager::new().await?);
         let backup_engine = Arc::new(
             BackupEngine::new(
@@ -42,12 +48,14 @@ impl System {
             .await,
         );
         SystemLog::InitializeComplete.log();
-        Ok(System {
+        Ok(Self {
             app_config,
+            event_bus,
             io_manager,
             progress_tracker,
             database_manager,
             backup_engine,
+            database_lock,
         })
     }
 

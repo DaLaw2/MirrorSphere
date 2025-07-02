@@ -26,24 +26,6 @@ pub trait DatabaseOpsTrait {
         Ok(())
     }
 
-    async fn lock_database() -> Result<(), Error> {
-        if fs::metadata(DATABASE_LOCK_PATH).await.is_err() {
-            File::create(&DATABASE_LOCK_PATH)
-                .await
-                .map_err(|_| DatabaseError::LockDatabaseFailed)?;
-            Ok(())
-        } else {
-            Err(DatabaseError::LockDatabaseFailed)?
-        }
-    }
-
-    async fn unlock_database() -> Result<(), Error> {
-        fs::remove_file(&DATABASE_LOCK_PATH)
-            .await
-            .map_err(|_| DatabaseError::UnlockDatabaseFailed)?;
-        Ok(())
-    }
-
     async fn close_connection(&self) {
         let pool = self.get_pool();
         pool.close().await

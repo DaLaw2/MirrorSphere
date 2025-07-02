@@ -8,7 +8,7 @@ pub struct DatabaseOps {
 
 impl DatabaseOpsTrait for DatabaseOps {
     fn new(pool: SqlitePool) -> Self {
-        DatabaseOps { pool }
+        Self { pool }
     }
 
     fn get_pool(&self) -> SqlitePool {

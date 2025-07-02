@@ -12,7 +12,7 @@ pub struct ListenerGroup<E: Event> {
 
 impl<E: Event> ListenerGroup<E> {
     pub fn new() -> Self {
-        ListenerGroup {
+        Self {
             dispatchers: Vec::new(),
         }
     }
