@@ -7,14 +7,17 @@ edition = "2024"
 async-trait = "0.1.88"
 bincode = { version = "2.0.1", features = ["serde"] }
 blake2 = "0.10.6"
+blake3 = { version = "1.8.2", features = ["traits-preview"] }
 chrono = "0.4.41"
 crossbeam-queue = "0.3.11"
 dashmap = "6.1.0"
 digest = "0.10.7"
+eframe = "0.31.1"
+egui = "0.31.1"
+egui_extras = { version = "0.31.1", features = ["all_loaders"] }
 fs4 = { version = "0.13.1", features = ["sync", "tokio"] }
 futures = "0.3.31"
 libc = "0.2.169"
-log = "0.4.27"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 md-5 = "0.10.6"
 memmap2 = "0.9.5"
@@ -23,7 +26,6 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sha2 = "0.10.8"
 sha3 = "0.10.8"
-slint = "1.12.0"
 sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid", "derive"] }
 thiserror = "2.0.12"
 tokio-stream = "0.1.17"
@@ -32,14 +34,7 @@ toml = "0.8.22"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
-
-[dependencies.blake3]
-version = "1.8.2"
-features = ["traits-preview"]
-
-[dependencies.uuid]
-version = "1.17.0"
-features = ["v4", "fast-rng", "serde"]
+uuid = { version = "1.17.0", features = ["v4", "fast-rng", "serde"] }
 
 [target.'cfg(windows)'.dependencies.windows-acl]
 version = "0.3.0"
