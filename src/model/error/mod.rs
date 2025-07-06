@@ -5,6 +5,7 @@ pub mod misc;
 pub mod system;
 pub mod task;
 
+use std::fmt::Display;
 use crate::model::error::database::DatabaseError;
 use crate::model::error::event::EventError;
 use crate::model::error::io::IOError;
@@ -13,13 +14,19 @@ use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, thiserror::Error, Serialize, Deserialize)]
 pub enum Error {
+    #[error("{0}")]
     Database(DatabaseError),
+    #[error("{0}")]
     Event(EventError),
+    #[error("{0}")]
     IO(IOError),
+    #[error("{0}")]
     Misc(MiscError),
+    #[error("{0}")]
     System(SystemError),
+    #[error("{0}")]
     Task(TaskError),
 }
 

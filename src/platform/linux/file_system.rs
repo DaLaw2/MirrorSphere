@@ -1,4 +1,4 @@
-use crate::core::event_system::event_bus::EventBus;
+use crate::core::event_bus::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;

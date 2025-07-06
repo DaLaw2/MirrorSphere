@@ -4,6 +4,7 @@ use crate::model::error::system::SystemError;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::{env, mem};
+use tracing::debug;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
 use windows::Win32::Security::{
@@ -102,9 +103,9 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
 
         CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
 
-        if GetLastError().is_err() {
-            Err(SystemError::AdjustTokenPrivilegesFailed)?
-        }
+        // if GetLastError().is_err() {
+        //     Err(SystemError::AdjustTokenPrivilegesFailed)?
+        // }
 
         Ok(())
     }

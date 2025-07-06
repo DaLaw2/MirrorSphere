@@ -1,40 +1,37 @@
 use crate::core::app_config::AppConfig;
-use crate::core::backup_engine::BackupEngine;
+use crate::core::backup_engine::{BackupEngine, RunBackupEngine};
 use crate::core::database_manager::DatabaseManager;
-use crate::core::event_system::event_bus::EventBus;
+use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
-use crate::model::error::system::SystemError;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
-use crate::platform::elevate::elevate;
-use crate::utils::logging::Logging;
-use privilege::user::privileged;
-use std::process;
-use std::sync::Arc;
 use crate::utils::database_lock::DatabaseLock;
+use crate::utils::logging::Logging;
+use std::sync::Arc;
+use tokio::sync::oneshot;
 
 pub struct System {
-    pub app_config: Arc<AppConfig>,
     pub event_bus: Arc<EventBus>,
+    pub app_config: Arc<AppConfig>,
     pub io_manager: Arc<IOManager>,
     pub progress_tracker: Arc<ProgressTracker>,
+    pub database_lock: DatabaseLock,
     pub database_manager: Arc<DatabaseManager>,
     pub backup_engine: Arc<BackupEngine>,
-    pub database_lock: DatabaseLock,
+    pub backup_engine_shutdown: Option<oneshot::Sender<()>>,
 }
 
 impl System {
-    pub async fn new() -> Result<Self, Error> {
+    pub async fn new(event_bus: Arc<EventBus>) -> Result<Self, Error> {
         Logging::initialize().await;
         SystemLog::Initializing.log();
-        if !privileged() {
-            SystemLog::ReRunAsAdmin.log();
-            elevate().map_err(|_| SystemError::RunAsAdminFailed)?;
-            process::exit(0);
-        }
+        // if !privileged() {
+        //     SystemLog::ReRunAsAdmin.log();
+        //     elevate()?;
+        //     process::exit(0);
+        // }
         let app_config = Arc::new(AppConfig::new()?);
-        let event_bus = Arc::new(EventBus::new());
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
         let database_lock = DatabaseLock::acquire().await?;
@@ -42,6 +39,7 @@ impl System {
         let backup_engine = Arc::new(
             BackupEngine::new(
                 app_config.clone(),
+                event_bus.clone(),
                 io_manager.clone(),
                 progress_tracker.clone(),
             )
@@ -49,24 +47,30 @@ impl System {
         );
         SystemLog::InitializeComplete.log();
         Ok(Self {
-            app_config,
             event_bus,
+            app_config,
             io_manager,
             progress_tracker,
+            database_lock,
             database_manager,
             backup_engine,
-            database_lock,
+            backup_engine_shutdown: None,
         })
     }
 
-    pub async fn run(&self) {
+    pub async fn run(&mut self) {
         SystemLog::Online.log();
-        unimplemented!();
+        let shutdown = self.backup_engine.run().await;
+        self.backup_engine_shutdown = Some(shutdown);
     }
 
-    pub async fn terminate(&self) {
+    pub async fn terminate(&mut self) {
         SystemLog::Terminating.log();
-        self.backup_engine.terminate().await;
+        if let Some(backup_engine_shutdown) = self.backup_engine_shutdown.take() {
+            //todo Need add error handle
+            let _ = backup_engine_shutdown.send(());
+        }
+        self.backup_engine.stop_all_tasks().await;
         self.database_manager.terminate().await;
         SystemLog::TerminateComplete.log();
     }

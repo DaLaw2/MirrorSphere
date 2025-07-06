@@ -1,0 +1,517 @@
+use std::sync::Arc;
+use std::sync::mpsc::Receiver;
+use dashmap::DashMap;
+use uuid::Uuid;
+use eframe::{App, Frame};
+use tracing::info;
+use std::path::PathBuf;
+use crate::core::event_bus::EventBus;
+use crate::interface::event::Event;
+use crate::model::error::Error;
+use crate::model::event::error::BackupError;
+use crate::model::event::filesystem::FolderProcessing;
+use crate::model::event::tasks::{TaskAddRequested, TaskProgress, TaskRemoveRequested, TaskResumeRequested, TaskStartRequested, TaskStateChanged, TaskSuspendRequested};
+use crate::model::task::{BackupOptions, BackupState, BackupTask, BackupType};
+
+#[derive(Debug, Clone)]
+struct TaskDisplay {
+    task: BackupTask,
+    current_folder: String,
+    processed_files: usize,
+    error_count: usize,
+}
+
+impl From<BackupTask> for TaskDisplay {
+    fn from(task: BackupTask) -> Self {
+        Self {
+            task,
+            current_folder: String::new(),
+            processed_files: 0,
+            error_count: 0,
+        }
+    }
+}
+
+pub struct BackupApp {
+    event_bus: Arc<EventBus>,
+
+    // Event receivers - only subscribe to system-initiated state changes
+    task_state_events: Receiver<TaskStateChanged>,
+    folder_processing_events: Receiver<FolderProcessing>,
+    progress_events: Receiver<TaskProgress>,
+    backup_error_events: Receiver<BackupError>,
+
+    // UI state
+    tasks: DashMap<Uuid, TaskDisplay>,
+    error_messages: DashMap<Uuid, Vec<Error>>,
+
+    // Add task form
+    new_task_source: String,
+    new_task_destination: String,
+    new_task_backup_type: BackupType,
+    new_task_mirror: bool,
+    new_task_lock_source: bool,
+    new_task_backup_permission: bool,
+    new_task_follow_symlinks: bool,
+    show_add_task_dialog: bool,
+
+    // UI settings
+    auto_scroll_errors: bool,
+    show_completed_tasks: bool,
+    viewing_errors_for_task: Option<Uuid>,
+}
+
+impl BackupApp {
+    pub fn new(event_bus: Arc<EventBus>) -> Self {
+        let task_state_events = event_bus.subscribe::<TaskStateChanged>();
+        let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
+        let progress_events = event_bus.subscribe::<TaskProgress>();
+        let backup_error_events = event_bus.subscribe::<BackupError>();
+
+        Self {
+            event_bus,
+            task_state_events,
+            folder_processing_events,
+            progress_events,
+            backup_error_events,
+            tasks: DashMap::new(),
+            error_messages: DashMap::new(),
+            new_task_source: String::new(),
+            new_task_destination: String::new(),
+            new_task_backup_type: BackupType::Full,
+            new_task_mirror: false,
+            new_task_lock_source: false,
+            new_task_backup_permission: false,
+            new_task_follow_symlinks: false,
+            show_add_task_dialog: false,
+            auto_scroll_errors: true,
+            show_completed_tasks: true,
+            viewing_errors_for_task: None,
+        }
+    }
+
+    fn publish_event<E: Event>(&self, event: E) {
+        self.event_bus.publish(event);
+    }
+
+    fn process_events(&mut self) {
+        while let Ok(event) = self.task_state_events.try_recv() {
+            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
+                task_display.task.state = event.new_state;
+            }
+        }
+
+        while let Ok(event) = self.folder_processing_events.try_recv() {
+            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
+                task_display.current_folder = event.current_folder.to_string_lossy().to_string();
+            }
+        }
+
+        while let Ok(event) = self.progress_events.try_recv() {
+            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
+                task_display.processed_files = event.processed_files;
+                task_display.error_count = event.error_count;
+            }
+        }
+
+        while let Ok(event) = self.backup_error_events.try_recv() {
+            match self.error_messages.get_mut(&event.task_id) {
+                Some(mut errors) => {
+                    errors.push(event.error);
+                }
+                None => {
+                    self.error_messages.insert(event.task_id, vec![event.error]);
+                }
+            }
+        }
+    }
+
+    fn draw_top_panel(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                ui.menu_button("File", |ui| {
+                    if ui.button("Add Task").clicked() {
+                        self.show_add_task_dialog = true;
+                        ui.close_menu();
+                    }
+                    ui.separator();
+                    if ui.button("Exit").clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+
+                ui.menu_button("View", |ui| {
+                    ui.checkbox(&mut self.show_completed_tasks, "Show Completed Tasks");
+                    ui.checkbox(&mut self.auto_scroll_errors, "Auto-scroll Error Messages");
+                });
+
+                ui.separator();
+                ui.label("Backup System Ready");
+            });
+        });
+    }
+
+    fn draw_task_list(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.heading("Backup Tasks");
+
+            ui.horizontal(|ui| {
+                if ui.button("➕ Add Task").clicked() {
+                    self.show_add_task_dialog = true;
+                }
+
+                ui.separator();
+
+                let running_count = self
+                    .tasks
+                    .iter()
+                    .filter(|entry| entry.value().task.state == BackupState::Running)
+                    .count();
+                ui.label(format!("Running: {}", running_count));
+
+                let completed_count = self
+                    .tasks
+                    .iter()
+                    .filter(|entry| entry.value().task.state == BackupState::Completed)
+                    .count();
+                ui.label(format!("Completed: {}", completed_count));
+
+                let error_count: usize = self.error_messages.iter().map(|entry| entry.value().len()).sum();
+                if error_count > 0 {
+                    ui.separator();
+                    ui.colored_label(egui::Color32::RED, format!("Total Errors: {}", error_count));
+                }
+            });
+
+            ui.separator();
+
+            egui::ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    let tasks_to_show: Vec<(Uuid, TaskDisplay)> = self.tasks.iter()
+                        .filter_map(|entry| {
+                            let (task_id, task_display) = (entry.key(), entry.value());
+
+                            if !self.show_completed_tasks
+                                && task_display.task.state == BackupState::Completed
+                            {
+                                return None;
+                            }
+
+                            Some((*task_id, task_display.clone()))
+                        })
+                        .collect();
+
+                    for (task_id, task_display) in tasks_to_show {
+                        self.draw_task_item(ui, task_id, &task_display);
+                        ui.separator();
+                    }
+
+                    if self.tasks.is_empty() {
+                        ui.vertical_centered(|ui| {
+                            ui.label("🚀 No backup tasks");
+                            ui.label("Click the button above to add a task");
+                        });
+                    }
+                });
+        });
+    }
+
+    fn draw_task_item(&mut self, ui: &mut egui::Ui, task_id: Uuid, task_display: &TaskDisplay) {
+        egui::Frame::new()
+            .fill(ui.visuals().faint_bg_color)
+            .inner_margin(8.0)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(format!("🗂️ {}", task_display.task.source_path.display()));
+                        ui.label(format!(
+                            "📁 {}",
+                            task_display.task.destination_path.display()
+                        ));
+
+                        ui.horizontal(|ui| {
+                            // Status indicator
+                            let (color, symbol) = match task_display.task.state {
+                                BackupState::Running => (egui::Color32::GREEN, "▶️"),
+                                BackupState::Suspended => (egui::Color32::YELLOW, "⏸️"),
+                                BackupState::Completed => (egui::Color32::BLUE, "✅"),
+                                BackupState::Failed => (egui::Color32::RED, "❌"),
+                                BackupState::Canceled => (egui::Color32::GRAY, "⏹️"),
+                                BackupState::Pending => (egui::Color32::GRAY, "⏸️"),
+                            };
+
+                            ui.colored_label(
+                                color,
+                                format!("{} {:?}", symbol, task_display.task.state),
+                            );
+
+                            if !task_display.current_folder.is_empty() {
+                                ui.separator();
+                                ui.label(format!(
+                                    "📄 {}",
+                                    task_display
+                                        .current_folder
+                                        .chars()
+                                        .take(50)
+                                        .collect::<String>()
+                                ));
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            if task_display.processed_files > 0 || task_display.error_count > 0 {
+                                ui.label(format!(
+                                    "📊 Processed: {} | Errors: {}",
+                                    task_display.processed_files, task_display.error_count
+                                ));
+                            }
+                        });
+                    });
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        // View errors button
+                        if let Some(errors) = self.error_messages.get(&task_id) {
+                            if !errors.is_empty() {
+                                if ui.small_button("👁 View Errors").clicked() {
+                                    self.viewing_errors_for_task = Some(task_id);
+                                }
+                                ui.separator();
+                            }
+                        }
+
+                        // Control buttons
+                        match task_display.task.state {
+                            BackupState::Pending | BackupState::Suspended => {
+                                if ui.button("▶️ Start").clicked() {
+                                    // Immediately update GUI state
+                                    if let Some(mut task) = self.tasks.get_mut(&task_id) {
+                                        task.task.state = BackupState::Running;
+                                    }
+                                    // Notify system
+                                    self.publish_event(TaskStartRequested { task_id });
+                                }
+                            }
+                            BackupState::Running => {
+                                if ui.button("⏸️ Pause").clicked() {
+                                    // Immediately update GUI state
+                                    if let Some(mut task) = self.tasks.get_mut(&task_id) {
+                                        task.task.state = BackupState::Suspended;
+                                    }
+                                    // Notify system
+                                    self.publish_event(TaskSuspendRequested { task_id });
+                                }
+                            }
+                            _ => {}
+                        }
+
+                        if task_display.task.state == BackupState::Suspended {
+                            if ui.button("▶️ Resume").clicked() {
+                                // Immediately update GUI state
+                                if let Some(mut task) = self.tasks.get_mut(&task_id) {
+                                    task.task.state = BackupState::Running;
+                                }
+                                // Notify system
+                                self.publish_event(TaskResumeRequested { task_id });
+                            }
+                        }
+
+                        if ui.button("🗑️").clicked() {
+                            // Immediately update GUI state
+                            self.tasks.remove(&task_id);
+                            self.error_messages.remove(&task_id);
+                            // If currently viewing errors for removed task, close error window
+                            if self.viewing_errors_for_task == Some(task_id) {
+                                self.viewing_errors_for_task = None;
+                            }
+                            // Notify system
+                            self.publish_event(TaskRemoveRequested { task_id });
+                        }
+                    });
+                });
+            });
+    }
+
+    fn draw_task_errors_window(&mut self, ctx: &egui::Context) {
+        if let Some(task_id) = self.viewing_errors_for_task {
+            let mut show_window = true;
+
+            // Get task name for window title
+            let window_title = if let Some(task) = self.tasks.get(&task_id) {
+                format!("Task Errors - {}", task.task.source_path.file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy())
+            } else {
+                "Task Errors".to_string()
+            };
+
+            egui::Window::new(window_title)
+                .open(&mut show_window)
+                .resizable(true)
+                .default_width(600.0)
+                .default_height(400.0)
+                .show(ctx, |ui| {
+                    if let Some(errors) = self.error_messages.get(&task_id) {
+                        ui.horizontal(|ui| {
+                            ui.heading(format!("Error List ({} items)", errors.len()));
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                if ui.button("🗑️ Clear All Errors").clicked() {
+                                    self.error_messages.remove(&task_id);
+                                    self.viewing_errors_for_task = None;
+                                }
+                            });
+                        });
+
+                        ui.separator();
+
+                        egui::ScrollArea::vertical()
+                            .stick_to_bottom(self.auto_scroll_errors)
+                            .show(ui, |ui| {
+                                for (i, error) in errors.iter().enumerate() {
+                                    egui::Frame::new()
+                                        .fill(if i % 2 == 0 {
+                                            ui.visuals().faint_bg_color
+                                        } else {
+                                            egui::Color32::TRANSPARENT
+                                        })
+                                        .inner_margin(4.0)
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(format!("{}.", i + 1));
+                                                ui.colored_label(
+                                                    egui::Color32::LIGHT_RED,
+                                                    format!("{}", error)
+                                                );
+                                            });
+                                        });
+                                }
+
+                                if errors.is_empty() {
+                                    ui.vertical_centered(|ui| {
+                                        ui.label("✅ No errors for this task");
+                                    });
+                                }
+                            });
+                    } else {
+                        ui.vertical_centered(|ui| {
+                            ui.label("⚠️ Cannot find error information for this task");
+                        });
+                    }
+                });
+
+            // If window is closed, clear viewing state
+            if !show_window {
+                self.viewing_errors_for_task = None;
+            }
+        }
+    }
+
+    fn draw_add_task_dialog(&mut self, ctx: &egui::Context) {
+        if self.show_add_task_dialog {
+            egui::Window::new("Add Backup Task")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    egui::Grid::new("add_task_grid")
+                        .num_columns(2)
+                        .spacing([40.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label("Source Path:");
+                            ui.text_edit_singleline(&mut self.new_task_source);
+                            ui.end_row();
+
+                            ui.label("Destination Path:");
+                            ui.text_edit_singleline(&mut self.new_task_destination);
+                            ui.end_row();
+
+                            ui.label("Backup Type:");
+                            egui::ComboBox::from_label("")
+                                .selected_text(format!("{:?}", self.new_task_backup_type))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.new_task_backup_type, BackupType::Full, "Full Backup");
+                                    ui.selectable_value(&mut self.new_task_backup_type, BackupType::Incremental, "Incremental Backup");
+                                });
+                            ui.end_row();
+                        });
+
+                    ui.separator();
+
+                    ui.label("Options:");
+                    ui.checkbox(&mut self.new_task_follow_symlinks, "Follow Symlinks");
+                    ui.checkbox(&mut self.new_task_mirror, "Mirror Mode (Delete extra files in destination)");
+                    ui.checkbox(&mut self.new_task_lock_source, "Lock Source Files");
+                    ui.checkbox(&mut self.new_task_backup_permission, "Backup File Permissions");
+
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Create Task").clicked() {
+                            if !self.new_task_source.is_empty() && !self.new_task_destination.is_empty() {
+                                let task = BackupTask {
+                                    uuid: Uuid::new_v4(),
+                                    state: BackupState::Pending,
+                                    source_path: PathBuf::from(&self.new_task_source),
+                                    destination_path: PathBuf::from(&self.new_task_destination),
+                                    backup_type: self.new_task_backup_type,
+                                    comparison_mode: None, // Can be set as needed
+                                    options: BackupOptions {
+                                        mirror: self.new_task_mirror,
+                                        lock_source: self.new_task_lock_source,
+                                        backup_permission: self.new_task_backup_permission,
+                                        follow_symlinks: self.new_task_follow_symlinks,
+                                    },
+                                };
+
+                                // Immediately update GUI display
+                                let task_display = TaskDisplay::from(task.clone());
+                                self.tasks.insert(task.uuid, task_display);
+
+                                // Notify system
+                                self.publish_event(TaskAddRequested { task });
+
+                                self.reset_form();
+                            }
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            self.show_add_task_dialog = false;
+                        }
+                    });
+                });
+        }
+    }
+
+    fn reset_form(&mut self) {
+        self.new_task_source.clear();
+        self.new_task_destination.clear();
+        self.new_task_backup_type = BackupType::Full;
+        self.new_task_mirror = false;
+        self.new_task_lock_source = false;
+        self.new_task_backup_permission = false;
+        self.new_task_follow_symlinks = false;
+        self.show_add_task_dialog = false;
+    }
+}
+
+impl App for BackupApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        // Process all events
+        self.process_events();
+
+        // Request continuous redraw for real-time updates
+        ctx.request_repaint_after(std::time::Duration::from_millis(100));
+
+        // Draw UI
+        self.draw_top_panel(ctx);
+        self.draw_task_list(ctx);
+        self.draw_add_task_dialog(ctx);
+        self.draw_task_errors_window(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        info!("GUI is shutting down...");
+    }
+
+    //todo Need add log viewer
+}

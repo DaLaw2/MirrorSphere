@@ -1,11 +1,14 @@
 use crate::core::app_config::AppConfig;
+use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
+use crate::model::event::tasks::*;
 use crate::model::task::{BackupState, BackupTask, BackupType, ComparisonMode};
+use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -13,26 +16,28 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::{Receiver as OneShotReceiver, Sender as OneShotSender};
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 pub struct BackupEngine {
     config: Arc<AppConfig>,
+    event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     tasks: Arc<DashMap<Uuid, BackupTask>>,
-    running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
+    running_tasks: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
 }
 
 impl BackupEngine {
     pub async fn new(
         config: Arc<AppConfig>,
+        event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             config,
+            event_bus,
             io_manager,
             progress_tracker,
             tasks: Arc::new(DashMap::new()),
@@ -40,7 +45,7 @@ impl BackupEngine {
         }
     }
 
-    pub async fn terminate(&self) {
+    pub async fn stop_all_tasks(&self) {
         let keys: Vec<Uuid> = self
             .running_tasks
             .iter()
@@ -63,8 +68,8 @@ impl BackupEngine {
         self.tasks.insert(task.uuid, task);
     }
 
-    pub async fn remove_task(&self, task: &Uuid) {
-        self.tasks.remove(task);
+    pub async fn remove_task(&self, uuid: &Uuid) {
+        self.tasks.remove(uuid);
     }
 
     pub async fn start_task(&self, uuid: Uuid) -> Result<(), Error> {
@@ -140,7 +145,7 @@ struct BackupTaskRunner {
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     tasks: Arc<DashMap<Uuid, BackupTask>>,
-    running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
+    running_tasks: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
 }
 
 impl BackupTaskRunner {
@@ -149,7 +154,7 @@ impl BackupTaskRunner {
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
         tasks: Arc<DashMap<Uuid, BackupTask>>,
-        running_tasks: Arc<DashMap<Uuid, (OneShotSender<()>, JoinHandle<()>)>>,
+        running_tasks: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
     ) -> Self {
         Self {
             config,
@@ -160,7 +165,7 @@ impl BackupTaskRunner {
         }
     }
 
-    async fn run(&self, task: BackupTask, mut shutdown: OneShotReceiver<()>, resume: bool) {
+    async fn run(&self, task: BackupTask, mut shutdown: oneshot::Receiver<()>, resume: bool) {
         let config = &self.config;
         let progress_tracker = &self.progress_tracker;
 
@@ -274,7 +279,7 @@ impl BackupWorker {
         &self,
         task: BackupTask,
         global_queue: Arc<SegQueue<PathBuf>>,
-        mut shutdown: OneShotReceiver<()>,
+        mut shutdown: oneshot::Receiver<()>,
     ) -> (Vec<PathBuf>, Vec<Error>) {
         let io_manager = &self.io_manager;
 
@@ -613,5 +618,57 @@ impl BackupWorker {
             .strip_prefix(source_root)
             .map_err(|_| SystemError::UnknownError)?;
         Ok(destination_root.join(relative_path))
+    }
+}
+
+#[async_trait]
+pub trait RunBackupEngine {
+    async fn run(&self) -> oneshot::Sender<()>;
+}
+
+#[async_trait]
+impl RunBackupEngine for Arc<BackupEngine> {
+    async fn run(&self) -> oneshot::Sender<()> {
+        let backup_engine = self.clone();
+        let event_bus = self.event_bus.clone();
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+
+        let _ = tokio::spawn(async move {
+            let add_task = event_bus.subscribe::<TaskAddRequested>();
+            let remove_task = event_bus.subscribe::<TaskRemoveRequested>();
+            let start_task = event_bus.subscribe::<TaskStartRequested>();
+            let resume_task = event_bus.subscribe::<TaskRemoveRequested>();
+            let suspend_task = event_bus.subscribe::<TaskStartRequested>();
+            loop {
+                if shutdown_rx.try_recv().is_ok() {
+                    break;
+                }
+
+                while let Ok(event) = add_task.try_recv() {
+                    backup_engine.add_task(event.task).await;
+                }
+
+                while let Ok(event) = remove_task.try_recv() {
+                    backup_engine.remove_task(&event.task_id).await;
+                }
+
+                while let Ok(event) = start_task.try_recv() {
+                    //todo Need add error handle
+                    let _ = backup_engine.start_task(event.task_id).await;
+                }
+
+                while let Ok(event) = resume_task.try_recv() {
+                    //todo Need add error handle
+                    let _ = backup_engine.resume_task(event.task_id).await;
+                }
+
+                while let Ok(event) = suspend_task.try_recv() {
+                    //todo Need add error handle
+                    let _ = backup_engine.suspend_task(event.task_id).await;
+                }
+            }
+        });
+
+        shutdown_tx
     }
 }
