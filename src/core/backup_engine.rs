@@ -18,6 +18,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use crate::log;
 
 pub struct BackupEngine {
     config: Arc<AppConfig>,
@@ -54,11 +55,11 @@ impl BackupEngine {
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_tasks.remove(&uuid) {
                 if shutdown.send(()).is_err() {
-                    TaskError::StopTaskFailed.log();
+                    log!(TaskError::StopTaskFailed);
                     continue;
                 }
                 if handle.await.is_err() {
-                    SystemError::ThreadPanic.log();
+                    log!(SystemError::ThreadPanic);
                 }
             }
         }
@@ -203,7 +204,7 @@ impl BackupTaskRunner {
                     shutdown_flag = true;
                     for shutdown in worker_shutdowns {
                         if shutdown.send(()).is_err() {
-                            TaskError::StopTaskFailed.log();
+                            log!(TaskError::StopTaskFailed);
                         }
                     }
                     join_all(&mut worker_handles).await
@@ -217,7 +218,7 @@ impl BackupTaskRunner {
                         next_level.extend(worker_next_level);
                         errors.extend(worker_errors);
                     }
-                    Err(_) => SystemError::ThreadPanic.log(),
+                    Err(_) => log!(SystemError::ThreadPanic),
                 }
             }
 
@@ -244,7 +245,7 @@ impl BackupTaskRunner {
                     task.state = BackupState::Completed;
                 }
             }
-            None => TaskError::TaskNotFound.log(),
+            None => log!(TaskError::TaskNotFound),
         }
     }
 

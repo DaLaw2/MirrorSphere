@@ -1,4 +1,4 @@
-use crate::r#macro::loggable::loggable;
+use crate::loggable;
 
 loggable! {
     MiscError {
@@ -19,7 +19,7 @@ loggable! {
         
         #[error("Failed to deserialize object")]
         DeserializeError => tracing::Level::ERROR,
-        
+
         #[error("Failed to initialize UI platform")]
         UIPlatformError => tracing::Level::ERROR,
     }

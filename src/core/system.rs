@@ -4,10 +4,17 @@ use crate::core::database_manager::DatabaseManager;
 use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
+use crate::log;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
+#[cfg(not(debug_assertions))]
+use crate::platform::elevate::elevate;
 use crate::utils::database_lock::DatabaseLock;
 use crate::utils::logging::Logging;
+#[cfg(not(debug_assertions))]
+use privilege::user::privileged;
+#[cfg(not(debug_assertions))]
+use std::process;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 
@@ -25,12 +32,13 @@ pub struct System {
 impl System {
     pub async fn new(event_bus: Arc<EventBus>) -> Result<Self, Error> {
         Logging::initialize().await;
-        SystemLog::Initializing.log();
-        // if !privileged() {
-        //     SystemLog::ReRunAsAdmin.log();
-        //     elevate()?;
-        //     process::exit(0);
-        // }
+        log!(SystemLog::Initializing);
+        #[cfg(not(debug_assertions))]
+        if !privileged() {
+            log!(SystemLog::ReRunAsAdmin);
+            elevate()?;
+            process::exit(0);
+        }
         let app_config = Arc::new(AppConfig::new()?);
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
@@ -45,7 +53,7 @@ impl System {
             )
             .await,
         );
-        SystemLog::InitializeComplete.log();
+        log!(SystemLog::InitializeComplete);
         Ok(Self {
             event_bus,
             app_config,
@@ -59,19 +67,18 @@ impl System {
     }
 
     pub async fn run(&mut self) {
-        SystemLog::Online.log();
         let shutdown = self.backup_engine.run().await;
         self.backup_engine_shutdown = Some(shutdown);
     }
 
     pub async fn terminate(&mut self) {
-        SystemLog::Terminating.log();
+        log!(SystemLog::Terminating);
         if let Some(backup_engine_shutdown) = self.backup_engine_shutdown.take() {
             //todo Need add error handle
             let _ = backup_engine_shutdown.send(());
         }
         self.backup_engine.stop_all_tasks().await;
         self.database_manager.terminate().await;
-        SystemLog::TerminateComplete.log();
+        log!(SystemLog::TerminateComplete);
     }
 }

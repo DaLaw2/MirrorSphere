@@ -14,10 +14,10 @@ impl DatabaseLock {
         if tokio::fs::metadata(DATABASE_LOCK_PATH).await.is_err() {
             File::create(&DATABASE_LOCK_PATH)
                 .await
-                .map_err(|_| DatabaseError::LockDatabaseFailed)?;
+                .map_err(|err| DatabaseError::LockDatabaseFailed(err))?;
             Ok(lock)
         } else {
-            Err(DatabaseError::LockDatabaseFailed)?
+            Err(DatabaseError::LockDatabaseFailed(err))?
         }
     }
 }

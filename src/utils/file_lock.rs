@@ -3,6 +3,7 @@ use crate::model::error::Error;
 use fs4::tokio::AsyncFileExt;
 use std::path::PathBuf;
 use tokio::fs::File;
+use crate::log;
 
 #[derive(Debug)]
 pub struct FileLock {
@@ -28,7 +29,7 @@ impl Drop for FileLock {
     fn drop(&mut self) {
         let path = self.path.clone();
         if let Err(_) = self.file.unlock() {
-            IOError::UnlockFileFailed { path }.log();
+            log!(IOError::UnlockFileFailed { path });
         }
     }
 }

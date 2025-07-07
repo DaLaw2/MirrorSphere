@@ -22,7 +22,7 @@ pub trait DatabaseOpsTrait {
     async fn create_database() -> Result<(), Error> {
         let _ = File::create(DATABASE_PATH)
             .await
-            .map_err(|_| DatabaseError::CreateDatabaseFailed)?;
+            .map_err(|err| DatabaseError::CreateDatabaseFailed(err))?;
         Ok(())
     }
 
@@ -61,7 +61,7 @@ pub trait DatabaseOpsTrait {
         )
         .execute(&pool)
         .await
-        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
+        .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
         Ok(())
     }
 
@@ -94,7 +94,7 @@ pub trait DatabaseOpsTrait {
         .bind(serde_json::to_string(&backup_task.options).map_err(|_| MiscError::SerializeError)?)
         .execute(&pool)
         .await
-        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
+        .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
         Ok(())
     }
 
@@ -126,7 +126,7 @@ pub trait DatabaseOpsTrait {
         .bind(backup_task.uuid)
         .execute(&pool)
         .await
-        .map_err(|_| DatabaseError::StatementExecutionFailed)?;
+        .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
         Ok(())
     }
 
@@ -136,7 +136,7 @@ pub trait DatabaseOpsTrait {
             .bind(uuid)
             .execute(&pool)
             .await
-            .map_err(|_| DatabaseError::StatementExecutionFailed)?;
+            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
         Ok(())
     }
 }

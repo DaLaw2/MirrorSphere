@@ -1,12 +1,9 @@
-use crate::r#macro::loggable::loggable;
+use crate::loggable;
 
 loggable! {
     SystemLog {
         #[error("Rerun the program as administrator")]
         ReRunAsAdmin => tracing::Level::WARN,
-
-        #[error("Online now")]
-        Online => tracing::Level::INFO,
 
         #[error("Initializing")]
         Initializing => tracing::Level::INFO,

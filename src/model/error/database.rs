@@ -1,6 +1,6 @@
-use crate::r#macro::loggable::loggable;
+use crate::traceable;
 
-loggable! {
+traceable! {
     DatabaseError {
         #[error("Failed to create database")]
         CreateDatabaseFailed => tracing::Level::ERROR,
@@ -13,7 +13,7 @@ loggable! {
 
         #[error("Failed to unlock database")]
         UnlockDatabaseFailed => tracing::Level::ERROR,
-        
+
         #[error("Failed to execute SQL statement")]
         StatementExecutionFailed  => tracing::Level::ERROR,
     }

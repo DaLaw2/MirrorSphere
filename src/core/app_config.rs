@@ -4,6 +4,7 @@ use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 use std::fs;
 use std::ops::Deref;
+use crate::log;
 
 pub struct AppConfig {
     config: Config,
@@ -11,9 +12,9 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn new() -> Result<Self, Error> {
-        SystemLog::Initializing.log();
+        log!(SystemLog::Initializing);
         let config = Self::load_config_file()?;
-        SystemLog::InitializeComplete.log();
+        log!(SystemLog::InitializeComplete);
         Ok(Self { config })
     }
 

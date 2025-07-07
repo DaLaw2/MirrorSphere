@@ -7,6 +7,7 @@ use crate::platform::constants::*;
 use crate::platform::database_ops::DatabaseOps;
 use sqlx::SqlitePool;
 use std::ops::Deref;
+use crate::log;
 
 #[derive(Debug)]
 pub struct DatabaseManager {
@@ -15,21 +16,21 @@ pub struct DatabaseManager {
 
 impl DatabaseManager {
     pub async fn new() -> Result<Self, Error> {
-        SystemLog::Initializing.log();
+        log!(SystemLog::Initializing);
         if !DatabaseOps::exist_database().await {
             DatabaseOps::create_database().await?;
         }
         let pool = SqlitePool::connect(DATABASE_URL)
             .await
-            .map_err(|_| DatabaseError::DatabaseConnectFailed)?;
-        DatabaseLog::DatabaseConnectSuccess.log();
+            .map_err(|err| DatabaseError::DatabaseConnectFailed(err))?;
+        log!(DatabaseLog::DatabaseConnectSuccess);
         let database_manager = Self {
             ops: DatabaseOps::new(pool),
         };
         if !database_manager.exist_table("BackupTasks").await {
             database_manager.create_backup_task_table().await?;
         }
-        SystemLog::InitializeComplete.log();
+        log!(SystemLog::InitializeComplete);
         Ok(database_manager)
     }
 

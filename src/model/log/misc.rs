@@ -1,4 +1,4 @@
-use crate::r#macro::loggable::loggable;
+use crate::loggable;
 
 loggable! {
     MiscLog {
