@@ -1,12 +1,11 @@
 use crate::model::error::misc::MiscError;
-use crate::model::error::Error;
 use crate::model::error::system::SystemError;
+use crate::model::error::Error;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::{env, mem};
-use tracing::debug;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, LUID};
 use windows::Win32::Security::{
     AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED,
     SE_SECURITY_NAME, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,

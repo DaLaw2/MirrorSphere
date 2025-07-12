@@ -1,5 +1,5 @@
+use libc::{gid_t, mode_t, uid_t};
 use std::time::SystemTime;
-use libc::{gid_t, uid_t, mode_t};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attributes {

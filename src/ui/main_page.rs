@@ -1,10 +1,3 @@
-use std::sync::Arc;
-use std::sync::mpsc::Receiver;
-use dashmap::DashMap;
-use uuid::Uuid;
-use eframe::{App, Frame};
-use tracing::info;
-use std::path::PathBuf;
 use crate::core::event_bus::EventBus;
 use crate::interface::event::Event;
 use crate::model::error::Error;
@@ -12,6 +5,15 @@ use crate::model::event::error::BackupError;
 use crate::model::event::filesystem::FolderProcessing;
 use crate::model::event::tasks::{TaskAddRequested, TaskProgress, TaskRemoveRequested, TaskResumeRequested, TaskStartRequested, TaskStateChanged, TaskSuspendRequested};
 use crate::model::task::{BackupOptions, BackupState, BackupTask, BackupType};
+use dashmap::DashMap;
+use eframe::egui;
+use eframe::{App, Frame};
+use egui_file_dialog::FileDialog;
+use std::path::PathBuf;
+use std::sync::mpsc::Receiver;
+use std::sync::Arc;
+use tracing::info;
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 struct TaskDisplay {
@@ -32,7 +34,13 @@ impl From<BackupTask> for TaskDisplay {
     }
 }
 
-pub struct BackupApp {
+#[derive(Debug, Clone, PartialEq)]
+enum FolderSelectionMode {
+    Source,
+    Destination,
+}
+
+pub struct MainPage {
     event_bus: Arc<EventBus>,
 
     // Event receivers - only subscribe to system-initiated state changes
@@ -48,12 +56,15 @@ pub struct BackupApp {
     // Add task form
     new_task_source: String,
     new_task_destination: String,
-    new_task_backup_type: BackupType,
     new_task_mirror: bool,
     new_task_lock_source: bool,
     new_task_backup_permission: bool,
     new_task_follow_symlinks: bool,
     show_add_task_dialog: bool,
+
+    // File dialog
+    file_dialog: FileDialog,
+    folder_selection_mode: Option<FolderSelectionMode>,
 
     // UI settings
     auto_scroll_errors: bool,
@@ -61,7 +72,7 @@ pub struct BackupApp {
     viewing_errors_for_task: Option<Uuid>,
 }
 
-impl BackupApp {
+impl MainPage {
     pub fn new(event_bus: Arc<EventBus>) -> Self {
         let task_state_events = event_bus.subscribe::<TaskStateChanged>();
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
@@ -78,12 +89,13 @@ impl BackupApp {
             error_messages: DashMap::new(),
             new_task_source: String::new(),
             new_task_destination: String::new(),
-            new_task_backup_type: BackupType::Full,
             new_task_mirror: false,
             new_task_lock_source: false,
             new_task_backup_permission: false,
             new_task_follow_symlinks: false,
             show_add_task_dialog: false,
+            file_dialog: FileDialog::new(),
+            folder_selection_mode: None,
             auto_scroll_errors: true,
             show_completed_tasks: true,
             viewing_errors_for_task: None,
@@ -116,9 +128,7 @@ impl BackupApp {
 
         while let Ok(event) = self.backup_error_events.try_recv() {
             match self.error_messages.get_mut(&event.task_id) {
-                Some(mut errors) => {
-                    errors.push(event.error);
-                }
+                Some(mut errors) => errors.push(event.error),
                 None => {
                     self.error_messages.insert(event.task_id, vec![event.error]);
                 }
@@ -144,9 +154,6 @@ impl BackupApp {
                     ui.checkbox(&mut self.show_completed_tasks, "Show Completed Tasks");
                     ui.checkbox(&mut self.auto_scroll_errors, "Auto-scroll Error Messages");
                 });
-
-                ui.separator();
-                ui.label("Backup System Ready");
             });
         });
     }
@@ -400,7 +407,6 @@ impl BackupApp {
                     }
                 });
 
-            // If window is closed, clear viewing state
             if !show_window {
                 self.viewing_errors_for_task = None;
             }
@@ -414,24 +420,23 @@ impl BackupApp {
                 .resizable(false)
                 .show(ctx, |ui| {
                     egui::Grid::new("add_task_grid")
-                        .num_columns(2)
-                        .spacing([40.0, 4.0])
+                        .num_columns(3)
+                        .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Source Path:");
                             ui.text_edit_singleline(&mut self.new_task_source);
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Source);
+                                self.file_dialog.pick_directory();
+                            }
                             ui.end_row();
 
                             ui.label("Destination Path:");
                             ui.text_edit_singleline(&mut self.new_task_destination);
-                            ui.end_row();
-
-                            ui.label("Backup Type:");
-                            egui::ComboBox::from_label("")
-                                .selected_text(format!("{:?}", self.new_task_backup_type))
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.new_task_backup_type, BackupType::Full, "Full Backup");
-                                    ui.selectable_value(&mut self.new_task_backup_type, BackupType::Incremental, "Incremental Backup");
-                                });
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Destination);
+                                self.file_dialog.pick_directory();
+                            }
                             ui.end_row();
                         });
 
@@ -453,8 +458,8 @@ impl BackupApp {
                                     state: BackupState::Pending,
                                     source_path: PathBuf::from(&self.new_task_source),
                                     destination_path: PathBuf::from(&self.new_task_destination),
-                                    backup_type: self.new_task_backup_type,
-                                    comparison_mode: None, // Can be set as needed
+                                    backup_type: BackupType::Full,
+                                    comparison_mode: None,
                                     options: BackupOptions {
                                         mirror: self.new_task_mirror,
                                         lock_source: self.new_task_lock_source,
@@ -480,12 +485,27 @@ impl BackupApp {
                     });
                 });
         }
+
+        self.file_dialog.update(ctx);
+
+        if let Some(path) = self.file_dialog.take_picked() {
+            if let Some(mode) = &self.folder_selection_mode {
+                match mode {
+                    FolderSelectionMode::Source => {
+                        self.new_task_source = path.to_string_lossy().to_string();
+                    }
+                    FolderSelectionMode::Destination => {
+                        self.new_task_destination = path.to_string_lossy().to_string();
+                    }
+                }
+            }
+            self.folder_selection_mode = None;
+        }
     }
 
     fn reset_form(&mut self) {
         self.new_task_source.clear();
         self.new_task_destination.clear();
-        self.new_task_backup_type = BackupType::Full;
         self.new_task_mirror = false;
         self.new_task_lock_source = false;
         self.new_task_backup_permission = false;
@@ -494,7 +514,7 @@ impl BackupApp {
     }
 }
 
-impl App for BackupApp {
+impl App for MainPage {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
         // Process all events
         self.process_events();

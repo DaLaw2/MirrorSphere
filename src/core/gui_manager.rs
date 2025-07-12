@@ -1,7 +1,7 @@
 use crate::core::event_bus::EventBus;
 use crate::model::error::misc::MiscError;
 use crate::model::error::Error;
-use crate::ui::backup_app::BackupApp;
+use crate::ui::main_page::MainPage;
 use eframe::egui;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ impl GuiManager {
         eframe::run_native(
             "MirrorSphere",
             options,
-            Box::new(|_cc| Ok(Box::new(BackupApp::new(event_bus)))),
+            Box::new(|_cc| Ok(Box::new(MainPage::new(event_bus)))),
         )
         .map_err(|err| MiscError::UIPlatformError(err))?;
 

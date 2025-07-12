@@ -5,7 +5,6 @@ pub mod misc;
 pub mod system;
 pub mod task;
 
-use std::fmt::Display;
 use crate::model::error::database::DatabaseError;
 use crate::model::error::event::EventError;
 use crate::model::error::io::IOError;

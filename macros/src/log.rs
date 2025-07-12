@@ -1,6 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{parse_macro_input, Expr, Token};
+use syn::parse::{Parse, ParseStream};
 
 pub fn log_impl(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as LogInput);
@@ -49,8 +50,8 @@ struct LogInput {
     debug_info: Option<Expr>,
 }
 
-impl syn::parse::Parse for LogInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+impl Parse for LogInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let error = input.parse::<Expr>()?;
 
         let debug_info = if input.peek(Token![,]) {

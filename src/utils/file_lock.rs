@@ -1,9 +1,9 @@
 use crate::model::error::io::IOError;
 use crate::model::error::Error;
 use fs4::tokio::AsyncFileExt;
+use macros::log;
 use std::path::PathBuf;
 use tokio::fs::File;
-use macros::log;
 
 #[derive(Debug)]
 pub struct FileLock {

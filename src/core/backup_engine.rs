@@ -12,13 +12,13 @@ use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
+use macros::log;
 use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-use macros::log;
 
 pub struct BackupEngine {
     config: Arc<AppConfig>,

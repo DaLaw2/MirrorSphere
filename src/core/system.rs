@@ -4,13 +4,13 @@ use crate::core::database_manager::DatabaseManager;
 use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
-use macros::log;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 #[cfg(not(debug_assertions))]
 use crate::platform::elevate::elevate;
 use crate::utils::database_lock::DatabaseLock;
 use crate::utils::logging::Logging;
+use macros::log;
 #[cfg(not(debug_assertions))]
 use privilege::user::privileged;
 #[cfg(not(debug_assertions))]

@@ -1,6 +1,6 @@
 use crate::model::error::io::IOError;
-use crate::model::error::Error;
 use crate::model::error::system::SystemError;
+use crate::model::error::Error;
 use crate::model::task::HashType;
 use crate::platform::attributes::*;
 use crate::utils::file_hash::*;

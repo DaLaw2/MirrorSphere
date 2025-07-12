@@ -2,9 +2,9 @@ use crate::model::config::{Config, ConfigTable};
 use crate::model::error::system::SystemError;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
+use macros::log;
 use std::fs;
 use std::ops::Deref;
-use macros::log;
 
 pub struct AppConfig {
     config: Config,

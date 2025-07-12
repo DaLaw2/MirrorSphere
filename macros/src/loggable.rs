@@ -1,9 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{
-    braced, parse_macro_input, Attribute, Fields, Ident, LitStr, Token, Type,
-    Visibility,
-};
+use syn::{braced, parse_macro_input, Attribute, Fields, Ident, LitStr, Token, Type, Visibility};
+use syn::parse::{Parse, ParseStream};
 
 pub fn loggable_impl(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as LoggableInput);
@@ -70,8 +68,8 @@ struct LoggableVariant {
     level: syn::Expr,
 }
 
-impl syn::parse::Parse for LoggableInput {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+impl Parse for LoggableInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
         let enum_name = input.parse::<Ident>()?;
 
         let content;

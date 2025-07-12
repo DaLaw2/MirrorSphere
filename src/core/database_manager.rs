@@ -5,9 +5,9 @@ use crate::model::log::database::DatabaseLog;
 use crate::model::log::system::SystemLog;
 use crate::platform::constants::*;
 use crate::platform::database_ops::DatabaseOps;
+use macros::log;
 use sqlx::SqlitePool;
 use std::ops::Deref;
-use macros::log;
 
 #[derive(Debug)]
 pub struct DatabaseManager {
