@@ -4,7 +4,7 @@ use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 use std::fs;
 use std::ops::Deref;
-use crate::log;
+use macros::log;
 
 pub struct AppConfig {
     config: Config,
@@ -20,9 +20,9 @@ impl AppConfig {
 
     fn load_config_file() -> Result<Config, Error> {
         let toml_string =
-            fs::read_to_string("./config.toml").map_err(|_| SystemError::ConfigNotFound)?;
+            fs::read_to_string("./config.toml").map_err(|err| SystemError::ConfigNotFound(err))?;
         let config = toml::from_str::<ConfigTable>(&toml_string)
-            .map_err(|_| SystemError::InvalidConfig)?
+            .map_err(|err| SystemError::InvalidConfig(err))?
             .config;
         Ok(config)
     }

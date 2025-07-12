@@ -14,7 +14,7 @@ use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, thiserror::Error, Serialize, Deserialize)]
+#[derive(Debug, thiserror::Error, Serialize, Deserialize, Clone)]
 pub enum Error {
     #[error("{0}")]
     Database(DatabaseError),

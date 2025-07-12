@@ -1,10 +1,12 @@
-use crate::loggable;
+use macros::traceable;
 
-loggable! {
+traceable! {
     TaskError {
+        #[no_source]
         #[error("Illegal task state")]
         IllegalTaskState => tracing::Level::ERROR,
 
+        #[no_source]
         #[error("Task not found")]
         TaskNotFound => tracing::Level::ERROR,
 

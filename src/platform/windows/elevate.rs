@@ -20,7 +20,7 @@ use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
 
 pub fn elevate() -> Result<(), Error> {
     let exe = env::current_exe()
-        .map_err(|_| SystemError::UnknownError)?;
+        .map_err(|err| SystemError::UnexpectError(err))?;
     let args: Vec<String> = env::args().skip(1).collect();
     let params = args.join(" ");
 
@@ -73,7 +73,7 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
             &mut token_handle,
         )
-        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
 
         let mut luid = LUID {
             LowPart: 0,
@@ -81,7 +81,7 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
         };
 
         LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
-            .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+            .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
 
         let mut token_privilege = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
@@ -99,9 +99,9 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
             None,
             None,
         )
-        .map_err(|_| SystemError::AdjustTokenPrivilegesFailed)?;
+        .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
 
-        CloseHandle(token_handle).map_err(|_| MiscError::ObjectFreeFailed)?;
+        CloseHandle(token_handle).map_err(|err| MiscError::ObjectFreeFailed(err))?;
 
         // if GetLastError().is_err() {
         //     Err(SystemError::AdjustTokenPrivilegesFailed)?

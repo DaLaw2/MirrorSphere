@@ -1,6 +1,6 @@
-use crate::loggable;
+use macros::traceable;
 
-loggable! {
+traceable! {
     EventError {
         #[error("Placeholder")]
         Placeholder => tracing::Level::INFO,

@@ -1,6 +1,6 @@
-use crate::loggable;
+use macros::traceable;
 
-loggable! {
+traceable! {
     MiscError {
         #[error("Failed to free object")]
         ObjectFreeFailed => tracing::Level::ERROR,

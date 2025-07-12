@@ -22,6 +22,7 @@ dependencies = [
  "futures",
  "libc",
  "log-panics",
+ "macros",
  "md-5",
  "memmap2",
  "paste",
@@ -2224,6 +2225,15 @@ checksum = "68f9dd8546191c1850ecf67d22f5ff00a935b890d0e84713159a55495cc2ac5f"
 dependencies = [
  "backtrace",
  "log",
+]
+
+[[package]]
+name = "macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

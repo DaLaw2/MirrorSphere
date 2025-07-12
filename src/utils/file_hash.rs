@@ -39,12 +39,12 @@ pub fn blake3(path: PathBuf) -> Result<Vec<u8>, Error> {
 }
 
 fn file_hash(path: PathBuf, mut hasher: impl HashMarker + DynDigest) -> Result<Vec<u8>, Error> {
-    let mut file = File::open(&path).map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
+    let mut file = File::open(&path).map_err(|err| IOError::ReadFileFailed(path.clone(), err))?;
     let mut buffer = [0; 65536];
     loop {
         let bytes_read = file
             .read(&mut buffer)
-            .map_err(|_| IOError::ReadFileFailed { path: path.clone() })?;
+            .map_err(|err| IOError::ReadFileFailed(path.clone(), err))?;
         if bytes_read == 0 {
             break;
         }

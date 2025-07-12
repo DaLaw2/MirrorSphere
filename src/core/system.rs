@@ -4,7 +4,7 @@ use crate::core::database_manager::DatabaseManager;
 use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
-use crate::log;
+use macros::log;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 #[cfg(not(debug_assertions))]

@@ -5,7 +5,6 @@ use crate::core::gui_manager::GuiManager;
 
 mod core;
 mod interface;
-mod r#macro;
 mod model;
 mod platform;
 mod ui;

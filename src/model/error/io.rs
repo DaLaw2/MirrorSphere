@@ -1,7 +1,7 @@
-use crate::loggable;
+use macros::traceable;
 use std::path::PathBuf;
 
-loggable! {
+traceable! {
     IOError {
         #[error("Semaphore has been closed")]
         SemaphoreClosed => tracing::Level::ERROR,
@@ -47,7 +47,8 @@ loggable! {
         
         #[error("Failed to unlock file: {path}")]     
         UnlockFileFailed { path: PathBuf } => tracing::Level::ERROR,
-        
+
+        #[no_source]
         #[error("File does not exist: {path}")]
         FileDoesNotExist { path: PathBuf } => tracing::Level::ERROR,
     }

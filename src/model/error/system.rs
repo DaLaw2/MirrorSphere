@@ -1,7 +1,8 @@
-use crate::loggable;
+use macros::traceable;
 
-loggable! {
+traceable! {
     SystemError {
+        #[no_source]
         #[error("Unable to run as administrator")]
         RunAsAdminFailed => tracing::Level::ERROR,
 
@@ -23,6 +24,10 @@ loggable! {
         #[error("Unexcepted thread panic")]
         ThreadPanic => tracing::Level::ERROR,
 
+        #[error("Unexcepted error")]
+        UnexpectError => tracing::Level::ERROR,
+
+        #[no_source]
         #[error("Unknown error")]
         UnknownError => tracing::Level::ERROR,
     }

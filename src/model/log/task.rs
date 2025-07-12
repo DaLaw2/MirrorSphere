@@ -1,4 +1,4 @@
-use crate::loggable;
+use macros::loggable;
 
 loggable! {
     TaskLog {

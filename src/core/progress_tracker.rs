@@ -58,7 +58,7 @@ impl ProgressTracker {
 
         let config = bincode::config::standard();
         let serialized = bincode::serde::encode_to_vec(data, config)
-            .map_err(|_| MiscError::BincodeDecodeError)?;
+            .map_err(|err| MiscError::BincodeDecodeError(err))?;
         let data_len = serialized.len();
 
         let file = OpenOptions::new()
@@ -67,24 +67,18 @@ impl ProgressTracker {
             .truncate(true)
             .open(&saved_path)
             .await
-            .map_err(|_| IOError::CreateFileFailed {
-                path: saved_path.clone(),
-            })?;
+            .map_err(|err| IOError::CreateFileFailed(saved_path.clone(), err))?;
 
         file.set_len(data_len as u64)
             .await
-            .map_err(|_| IOError::WriteFileFailed {
-                path: saved_path.clone(),
-            })?;
+            .map_err(|err| IOError::WriteFileFailed(saved_path.clone(), err))?;
 
         let mut mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|_| IOError::WriteFileFailed {
-                path: saved_path.clone(),
-            })?
+            MmapMut::map_mut(&file).map_err(|err| IOError::WriteFileFailed(saved_path.clone(), err))?
         };
         mmap[..data_len].copy_from_slice(&serialized);
         mmap.flush()
-            .map_err(|_| IOError::WriteFileFailed { path: saved_path })?;
+            .map_err(|err| IOError::WriteFileFailed(saved_path, err))?;
 
         Ok(())
     }
@@ -101,17 +95,15 @@ impl ProgressTracker {
         let file =
             tokio::fs::File::open(&saved_path)
                 .await
-                .map_err(|_| IOError::ReadFileFailed {
-                    path: saved_path.clone(),
-                })?;
+                .map_err(|err| IOError::ReadFileFailed(saved_path.clone(), err))?;
 
         let mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|_| IOError::ReadFileFailed { path: saved_path })?
+            MmapMut::map_mut(&file).map_err(|err| IOError::ReadFileFailed(saved_path, err))?
         };
 
         let config = bincode::config::standard();
         let (progress_data, _) = bincode::serde::decode_from_slice(&mmap, config)
-            .map_err(|_| MiscError::BincodeDecodeError)?;
+            .map_err(|err| MiscError::BincodeDecodeError(err))?;
 
         Ok(progress_data)
     }

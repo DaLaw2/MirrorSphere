@@ -25,11 +25,11 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let symlink_metadata = tokio::fs::symlink_metadata(path)
             .await
-            .map_err(|_| IOError::GetMetadataFailed { path: path.clone() })?;
+            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
 
         Ok(symlink_metadata.file_type().is_symlink())
     }
@@ -47,16 +47,16 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let mut result = Vec::new();
         let reader = fs::read_dir(path)
             .await
-            .map_err(|_| IOError::ReadDirectoryFailed { path: path.clone() })?;
+            .map_err(|err| IOError::ReadDirectoryFailed(path.clone(), err))?;
         let mut entries = ReadDirStream::new(reader);
         while let Some(entry) = entries.next().await {
             let path = entry
-                .map_err(|_| IOError::ReadDirectoryFailed { path: path.clone() })?
+                .map_err(|err| IOError::ReadDirectoryFailed(path.clone(), err))?
                 .path();
             result.push(path);
         }
@@ -68,11 +68,11 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         fs::create_dir_all(path)
             .await
-            .map_err(|_| IOError::CreateDirectoryFailed { path: path.clone() })?;
+            .map_err(|err| IOError::CreateDirectoryFailed(path.clone(), err))?;
         Ok(())
     }
 
@@ -81,11 +81,11 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         fs::remove_dir_all(path)
             .await
-            .map_err(|_| IOError::DeleteDirectoryFailed { path: path.clone() })?;
+            .map_err(|err| IOError::DeleteDirectoryFailed(path.clone(), err))?;
         Ok(())
     }
 
@@ -94,14 +94,11 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         fs::copy(source, destination)
             .await
-            .map_err(|_| IOError::CopyFileFailed {
-                src: source.clone(),
-                dst: destination.clone(),
-            })?;
+            .map_err(|err| IOError::CopyFileFailed(source.clone(), destination.clone(), err))?;
         Ok(())
     }
 
@@ -110,11 +107,11 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         fs::remove_file(path)
             .await
-            .map_err(|_| IOError::DeleteFileFailed { path: path.clone() })?;
+            .map_err(|err| IOError::DeleteFileFailed(path.clone(), err))?;
         Ok(())
     }
 
@@ -153,7 +150,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let file_lock = FileLock::new(path).await?;
 
@@ -165,7 +162,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let path_clone = path.clone();
         let hash = spawn_blocking(move || {
@@ -180,7 +177,7 @@ pub trait FileSystemTrait {
             }
         })
         .await
-        .map_err(|_| SystemError::ThreadPanic)??;
+        .map_err(|err| SystemError::ThreadPanic(err))??;
         Ok(hash)
     }
 
@@ -193,20 +190,16 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOError::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let source_metadata =
             fs::metadata(source)
                 .await
-                .map_err(|_| IOError::GetMetadataFailed {
-                    path: source.clone(),
-                })?;
+                .map_err(|err| IOError::GetMetadataFailed(source.clone(), err))?;
         let destination_metadata =
             fs::metadata(destination)
                 .await
-                .map_err(|_| IOError::GetMetadataFailed {
-                    path: destination.clone(),
-                })?;
+                .map_err(|err| IOError::GetMetadataFailed(destination.clone(), err))?;
 
         if source_metadata.len() != destination_metadata.len() {
             return Ok(false);
@@ -214,15 +207,11 @@ pub trait FileSystemTrait {
         let source_modified =
             source_metadata
                 .modified()
-                .map_err(|_| IOError::GetMetadataFailed {
-                    path: source.clone(),
-                })?;
+                .map_err(|err| IOError::GetMetadataFailed(source.clone(), err))?;
         let destination_modified =
             destination_metadata
                 .modified()
-                .map_err(|_| IOError::GetMetadataFailed {
-                    path: destination.clone(),
-                })?;
+                .map_err(|err| IOError::GetMetadataFailed(destination.clone(), err))?;
         if source_modified != destination_modified {
             return Ok(false);
         }

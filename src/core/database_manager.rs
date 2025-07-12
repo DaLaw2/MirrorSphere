@@ -7,7 +7,7 @@ use crate::platform::constants::*;
 use crate::platform::database_ops::DatabaseOps;
 use sqlx::SqlitePool;
 use std::ops::Deref;
-use crate::log;
+use macros::log;
 
 #[derive(Debug)]
 pub struct DatabaseManager {

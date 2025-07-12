@@ -18,7 +18,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
-use crate::log;
+use macros::log;
 
 pub struct BackupEngine {
     config: Arc<AppConfig>,
@@ -55,11 +55,11 @@ impl BackupEngine {
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_tasks.remove(&uuid) {
                 if shutdown.send(()).is_err() {
-                    log!(TaskError::StopTaskFailed);
+                    log!(TaskError::StopTaskFailed("Fail send shutdown signal to task"));
                     continue;
                 }
-                if handle.await.is_err() {
-                    log!(SystemError::ThreadPanic);
+                if let Err(err) = handle.await {
+                    log!(SystemError::ThreadPanic(err));
                 }
             }
         }
@@ -106,8 +106,8 @@ impl BackupEngine {
             .running_tasks
             .remove(&uuid)
             .ok_or(TaskError::TaskNotFound)?;
-        shutdown.send(()).map_err(|_| TaskError::StopTaskFailed)?;
-        handle.await.map_err(|_| SystemError::ThreadPanic)?;
+        shutdown.send(()).map_err(|_| TaskError::StopTaskFailed("Fail send shutdown signal to task"))?;
+        handle.await.map_err(|err| SystemError::ThreadPanic(err))?;
         Ok(())
     }
 
@@ -204,7 +204,7 @@ impl BackupTaskRunner {
                     shutdown_flag = true;
                     for shutdown in worker_shutdowns {
                         if shutdown.send(()).is_err() {
-                            log!(TaskError::StopTaskFailed);
+                            log!(TaskError::StopTaskFailed("Fail send shutdown signal to task"));
                         }
                     }
                     join_all(&mut worker_handles).await
@@ -218,7 +218,7 @@ impl BackupTaskRunner {
                         next_level.extend(worker_next_level);
                         errors.extend(worker_errors);
                     }
-                    Err(_) => log!(SystemError::ThreadPanic),
+                    Err(err) => log!(SystemError::ThreadPanic(err)),
                 }
             }
 

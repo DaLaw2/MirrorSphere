@@ -1,4 +1,4 @@
-use crate::traceable;
+use macros::traceable;
 
 traceable! {
     DatabaseError {

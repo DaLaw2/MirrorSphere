@@ -2,7 +2,7 @@ use crate::model::error::database::DatabaseError;
 use crate::model::error::misc::MiscError;
 use crate::model::error::Error;
 use crate::model::task::BackupTask;
-use crate::platform::constants::{DATABASE_LOCK_PATH, DATABASE_PATH};
+use crate::platform::constants::DATABASE_PATH;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use tokio::fs;
@@ -85,13 +85,13 @@ pub trait DatabaseOpsTrait {
         .bind(backup_task.destination_path.to_string_lossy().to_string())
         .bind(
             serde_json::to_string(&backup_task.backup_type)
-                .map_err(|_| MiscError::SerializeError)?,
+                .map_err(|err| MiscError::SerializeError(err))?,
         )
         .bind(
             serde_json::to_string(&backup_task.comparison_mode)
-                .map_err(|_| MiscError::SerializeError)?,
+                .map_err(|err| MiscError::SerializeError(err))?,
         )
-        .bind(serde_json::to_string(&backup_task.options).map_err(|_| MiscError::SerializeError)?)
+        .bind(serde_json::to_string(&backup_task.options).map_err(|err| MiscError::SerializeError(err))?)
         .execute(&pool)
         .await
         .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
@@ -116,13 +116,13 @@ pub trait DatabaseOpsTrait {
         .bind(backup_task.destination_path.to_string_lossy().to_string())
         .bind(
             serde_json::to_string(&backup_task.backup_type)
-                .map_err(|_| MiscError::SerializeError)?,
+                .map_err(|err| MiscError::SerializeError(err))?,
         )
         .bind(
             serde_json::to_string(&backup_task.comparison_mode)
-                .map_err(|_| MiscError::SerializeError)?,
+                .map_err(|err| MiscError::SerializeError(err))?,
         )
-        .bind(serde_json::to_string(&backup_task.options).map_err(|_| MiscError::SerializeError)?)
+        .bind(serde_json::to_string(&backup_task.options).map_err(|err| MiscError::SerializeError(err))?)
         .bind(backup_task.uuid)
         .execute(&pool)
         .await

@@ -17,7 +17,7 @@ impl DatabaseLock {
                 .map_err(|err| DatabaseError::LockDatabaseFailed(err))?;
             Ok(lock)
         } else {
-            Err(DatabaseError::LockDatabaseFailed(err))?
+            Err(DatabaseError::LockDatabaseFailed("Lock file already exists."))?
         }
     }
 }

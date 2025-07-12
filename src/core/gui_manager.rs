@@ -25,7 +25,7 @@ impl GuiManager {
             options,
             Box::new(|_cc| Ok(Box::new(BackupApp::new(event_bus)))),
         )
-        .map_err(|_| MiscError::UIPlatformError)?;
+        .map_err(|err| MiscError::UIPlatformError(err))?;
 
         Ok(())
     }
