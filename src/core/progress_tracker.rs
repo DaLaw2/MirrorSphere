@@ -26,9 +26,9 @@ impl ProgressTracker {
         Self { io_manager }
     }
 
-    pub async fn save_task(
+    pub async fn save_execution(
         &self,
-        task_uuid: Uuid,
+        execution_uuid: Uuid,
         current_level: Vec<PathBuf>,
         errors: Vec<Error>,
     ) -> Result<(), Error> {
@@ -37,18 +37,18 @@ impl ProgressTracker {
             errors,
         };
 
-        self.write_progress_file(task_uuid, &progress_data).await
+        self.write_progress_file(execution_uuid, &progress_data).await
     }
 
-    pub async fn resume_task(&self, task_uuid: Uuid) -> (Vec<PathBuf>, Vec<Error>) {
-        match self.read_progress_file(task_uuid).await {
+    pub async fn resume_execution(&self, execution_uuid: Uuid) -> (Vec<PathBuf>, Vec<Error>) {
+        match self.read_progress_file(execution_uuid).await {
             Ok(progress_data) => (progress_data.current_level, progress_data.errors),
             Err(_) => (Vec::new(), Vec::new()),
         }
     }
 
-    async fn write_progress_file(&self, task_uuid: Uuid, data: &ProgressData) -> Result<(), Error> {
-        let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(task_uuid.to_string());
+    async fn write_progress_file(&self, execution_uuid: Uuid, data: &ProgressData) -> Result<(), Error> {
+        let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(execution_uuid.to_string());
 
         if let Some(parent) = saved_path.parent() {
             let instance = &self.io_manager;
@@ -83,8 +83,8 @@ impl ProgressTracker {
         Ok(())
     }
 
-    async fn read_progress_file(&self, task_uuid: Uuid) -> Result<ProgressData, Error> {
-        let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(task_uuid.to_string());
+    async fn read_progress_file(&self, execution_uuid: Uuid) -> Result<ProgressData, Error> {
+        let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(execution_uuid.to_string());
 
         if !saved_path.exists() {
             Err(IOError::FileDoesNotExist {

@@ -1,71 +1,18 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use syn::{braced, parse_macro_input, Attribute, Fields, Ident, LitStr, Token, Type, Visibility};
 use syn::parse::{Parse, ParseStream};
-
-pub fn loggable_impl(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as LoggableInput);
-
-    let enum_name = &input.enum_name;
-    let variants = &input.variants;
-
-    let enum_variants = variants.iter().map(|variant| {
-        let name = &variant.name;
-        let error_attr = &variant.error_message;
-        let fields = &variant.fields;
-
-        quote! {
-            #[error(#error_attr)]
-            #name #fields
-        }
-    });
-
-    let level_match_arms = variants.iter().map(|variant| {
-        let name = &variant.name;
-        let level = &variant.level;
-        let field_pattern = match &variant.fields {
-            Fields::Unit => quote! {},
-            Fields::Named(fields) => {
-                let field_names = fields.named.iter().map(|f| &f.ident);
-                quote! { { #(#field_names: _),* } }
-            }
-            Fields::Unnamed(_) => quote! { (..) },
-        };
-
-        quote! {
-            Self::#name #field_pattern => #level
-        }
-    });
-
-    quote! {
-        #[allow(dead_code)]
-        #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
-        pub enum #enum_name {
-            #(#enum_variants,)*
-        }
-
-        impl #enum_name {
-            #[allow(dead_code)]
-            pub fn level(&self) -> tracing::Level {
-                match self {
-                    #(#level_match_arms,)*
-                }
-            }
-        }
-    }
-    .into()
-}
-
-struct LoggableInput {
-    enum_name: Ident,
-    variants: Vec<LoggableVariant>,
-}
+use syn::{braced, parse_macro_input, Attribute, Fields, Ident, LitStr, Token, Type, Visibility};
 
 struct LoggableVariant {
     error_message: LitStr,
     name: Ident,
     fields: Fields,
     level: syn::Expr,
+}
+
+struct LoggableInput {
+    enum_name: Ident,
+    variants: Vec<LoggableVariant>,
 }
 
 impl Parse for LoggableInput {
@@ -140,4 +87,57 @@ impl Parse for LoggableInput {
             variants,
         })
     }
+}
+
+pub fn loggable_impl(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as LoggableInput);
+
+    let enum_name = &input.enum_name;
+    let variants = &input.variants;
+
+    let enum_variants = variants.iter().map(|variant| {
+        let name = &variant.name;
+        let error_attr = &variant.error_message;
+        let fields = &variant.fields;
+
+        quote! {
+            #[error(#error_attr)]
+            #name #fields
+        }
+    });
+
+    let level_match_arms = variants.iter().map(|variant| {
+        let name = &variant.name;
+        let level = &variant.level;
+        let field_pattern = match &variant.fields {
+            Fields::Unit => quote! {},
+            Fields::Named(fields) => {
+                let field_names = fields.named.iter().map(|f| &f.ident);
+                quote! { { #(#field_names: _),* } }
+            }
+            Fields::Unnamed(_) => quote! { (..) },
+        };
+
+        quote! {
+            Self::#name #field_pattern => #level
+        }
+    });
+
+    quote! {
+        #[allow(dead_code)]
+        #[derive(Debug, Clone, thiserror::Error, serde::Serialize, serde::Deserialize)]
+        pub enum #enum_name {
+            #(#enum_variants,)*
+        }
+
+        impl #enum_name {
+            #[allow(dead_code)]
+            pub fn level(&self) -> tracing::Level {
+                match self {
+                    #(#level_match_arms,)*
+                }
+            }
+        }
+    }
+        .into()
 }

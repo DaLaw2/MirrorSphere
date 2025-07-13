@@ -77,8 +77,8 @@ impl System {
             //todo Need add error handle
             let _ = backup_engine_shutdown.send(());
         }
-        self.backup_engine.stop_all_tasks().await;
-        self.database_manager.terminate().await;
+        self.backup_engine.stop_all_executions().await;
+        self.database_manager.close_connection().await;
         log!(SystemLog::TerminateComplete);
     }
 }

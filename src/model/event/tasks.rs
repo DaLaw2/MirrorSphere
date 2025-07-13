@@ -1,48 +1,48 @@
 use crate::interface::event::Event;
-use crate::model::task::{BackupState, BackupTask};
+use crate::model::backup_execution::{BackupExecution, BackupState};
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
-pub struct TaskAddRequested {
-    pub task: BackupTask,
+pub struct ExecutionAddRequest {
+    pub execution: BackupExecution,
 }
-impl Event for TaskAddRequested {}
+impl Event for ExecutionAddRequest {}
 
 #[derive(Clone, Debug)]
-pub struct TaskRemoveRequested {
-    pub task_id: Uuid,
+pub struct ExecutionRemoveRequest {
+    pub execution_id: Uuid,
 }
-impl Event for TaskRemoveRequested {}
+impl Event for ExecutionRemoveRequest {}
 
 #[derive(Clone, Debug)]
-pub struct TaskStartRequested {
-    pub task_id: Uuid,
+pub struct ExecutionStartRequest {
+    pub execution_id: Uuid,
 }
-impl Event for TaskStartRequested {}
+impl Event for ExecutionStartRequest {}
 
 #[derive(Clone, Debug)]
-pub struct TaskSuspendRequested {
-    pub task_id: Uuid,
+pub struct ExecutionSuspendRequest {
+    pub execution_id: Uuid,
 }
-impl Event for TaskSuspendRequested {}
+impl Event for ExecutionSuspendRequest {}
 
 #[derive(Clone, Debug)]
-pub struct TaskResumeRequested {
-    pub task_id: Uuid,
+pub struct ExecutionResumeRequested {
+    pub execution_id: Uuid,
 }
-impl Event for TaskResumeRequested {}
+impl Event for ExecutionResumeRequested {}
 
 #[derive(Clone, Debug)]
-pub struct TaskStateChanged {
-    pub task_id: Uuid,
+pub struct ExecutionStateChanged {
+    pub execution_id: Uuid,
     pub new_state: BackupState,
 }
-impl Event for TaskStateChanged {}
+impl Event for ExecutionStateChanged {}
 
 #[derive(Clone, Debug)]
-pub struct TaskProgress {
+pub struct ExecutionProgress {
     pub task_id: Uuid,
     pub processed_files: usize,
     pub error_count: usize,
 }
-impl Event for TaskProgress {}
+impl Event for ExecutionProgress {}

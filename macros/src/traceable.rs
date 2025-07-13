@@ -15,6 +15,22 @@ struct ErrorVariant {
     level: Expr,
 }
 
+impl ErrorVariant {
+    fn has_no_source(&self) -> bool {
+        self.attributes
+            .iter()
+            .any(|attr| attr.path().is_ident("no_source"))
+    }
+
+    fn should_generate_constructor(&self) -> bool {
+        if self.has_no_source() {
+            !self.fields.is_empty()
+        } else {
+            true
+        }
+    }
+}
+
 struct TraceableInput {
     enum_name: Ident,
     variants: Vec<ErrorVariant>,
@@ -92,22 +108,6 @@ impl Parse for TraceableInput {
             enum_name,
             variants,
         })
-    }
-}
-
-impl ErrorVariant {
-    fn has_no_source(&self) -> bool {
-        self.attributes
-            .iter()
-            .any(|attr| attr.path().is_ident("no_source"))
-    }
-
-    fn should_generate_constructor(&self) -> bool {
-        if self.has_no_source() {
-            !self.fields.is_empty()
-        } else {
-            true
-        }
     }
 }
 

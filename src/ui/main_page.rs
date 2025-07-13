@@ -3,8 +3,8 @@ use crate::interface::event::Event;
 use crate::model::error::Error;
 use crate::model::event::error::BackupError;
 use crate::model::event::filesystem::FolderProcessing;
-use crate::model::event::tasks::{TaskAddRequested, TaskProgress, TaskRemoveRequested, TaskResumeRequested, TaskStartRequested, TaskStateChanged, TaskSuspendRequested};
-use crate::model::task::{BackupOptions, BackupState, BackupTask, BackupType};
+use crate::model::event::tasks::{ExecutionAddRequest, ExecutionProgress, ExecutionRemoveRequest, ExecutionResumeRequested, ExecutionStartRequest, ExecutionStateChanged, ExecutionSuspendRequest};
+use crate::model::backup_execution::{BackupOptions, BackupState, BackupExecution, BackupType};
 use dashmap::DashMap;
 use eframe::egui;
 use eframe::{App, Frame};
@@ -16,17 +16,17 @@ use tracing::info;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
-struct TaskDisplay {
-    task: BackupTask,
+struct ExecutionDisplay {
+    execution: BackupExecution,
     current_folder: String,
     processed_files: usize,
     error_count: usize,
 }
 
-impl From<BackupTask> for TaskDisplay {
-    fn from(task: BackupTask) -> Self {
+impl From<BackupExecution> for ExecutionDisplay {
+    fn from(execution: BackupExecution) -> Self {
         Self {
-            task,
+            execution,
             current_folder: String::new(),
             processed_files: 0,
             error_count: 0,
@@ -44,13 +44,13 @@ pub struct MainPage {
     event_bus: Arc<EventBus>,
 
     // Event receivers - only subscribe to system-initiated state changes
-    task_state_events: Receiver<TaskStateChanged>,
+    execution_state_events: Receiver<ExecutionStateChanged>,
     folder_processing_events: Receiver<FolderProcessing>,
-    progress_events: Receiver<TaskProgress>,
+    progress_events: Receiver<ExecutionProgress>,
     backup_error_events: Receiver<BackupError>,
 
     // UI state
-    tasks: DashMap<Uuid, TaskDisplay>,
+    executions: DashMap<Uuid, ExecutionDisplay>,
     error_messages: DashMap<Uuid, Vec<Error>>,
 
     // Add task form
@@ -74,18 +74,18 @@ pub struct MainPage {
 
 impl MainPage {
     pub fn new(event_bus: Arc<EventBus>) -> Self {
-        let task_state_events = event_bus.subscribe::<TaskStateChanged>();
+        let task_state_events = event_bus.subscribe::<ExecutionStateChanged>();
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
-        let progress_events = event_bus.subscribe::<TaskProgress>();
+        let progress_events = event_bus.subscribe::<ExecutionProgress>();
         let backup_error_events = event_bus.subscribe::<BackupError>();
 
         Self {
             event_bus,
-            task_state_events,
+            execution_state_events: task_state_events,
             folder_processing_events,
             progress_events,
             backup_error_events,
-            tasks: DashMap::new(),
+            executions: DashMap::new(),
             error_messages: DashMap::new(),
             new_task_source: String::new(),
             new_task_destination: String::new(),
@@ -107,20 +107,20 @@ impl MainPage {
     }
 
     fn process_events(&mut self) {
-        while let Ok(event) = self.task_state_events.try_recv() {
-            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
-                task_display.task.state = event.new_state;
+        while let Ok(event) = self.execution_state_events.try_recv() {
+            if let Some(mut task_display) = self.executions.get_mut(&event.execution_id) {
+                task_display.execution.state = event.new_state;
             }
         }
 
         while let Ok(event) = self.folder_processing_events.try_recv() {
-            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
+            if let Some(mut task_display) = self.executions.get_mut(&event.execution_id) {
                 task_display.current_folder = event.current_folder.to_string_lossy().to_string();
             }
         }
 
         while let Ok(event) = self.progress_events.try_recv() {
-            if let Some(mut task_display) = self.tasks.get_mut(&event.task_id) {
+            if let Some(mut task_display) = self.executions.get_mut(&event.task_id) {
                 task_display.processed_files = event.processed_files;
                 task_display.error_count = event.error_count;
             }
@@ -170,16 +170,16 @@ impl MainPage {
                 ui.separator();
 
                 let running_count = self
-                    .tasks
+                    .executions
                     .iter()
-                    .filter(|entry| entry.value().task.state == BackupState::Running)
+                    .filter(|entry| entry.value().execution.state == BackupState::Running)
                     .count();
                 ui.label(format!("Running: {}", running_count));
 
                 let completed_count = self
-                    .tasks
+                    .executions
                     .iter()
-                    .filter(|entry| entry.value().task.state == BackupState::Completed)
+                    .filter(|entry| entry.value().execution.state == BackupState::Completed)
                     .count();
                 ui.label(format!("Completed: {}", completed_count));
 
@@ -195,12 +195,12 @@ impl MainPage {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    let tasks_to_show: Vec<(Uuid, TaskDisplay)> = self.tasks.iter()
+                    let tasks_to_show: Vec<(Uuid, ExecutionDisplay)> = self.executions.iter()
                         .filter_map(|entry| {
                             let (task_id, task_display) = (entry.key(), entry.value());
 
                             if !self.show_completed_tasks
-                                && task_display.task.state == BackupState::Completed
+                                && task_display.execution.state == BackupState::Completed
                             {
                                 return None;
                             }
@@ -214,7 +214,7 @@ impl MainPage {
                         ui.separator();
                     }
 
-                    if self.tasks.is_empty() {
+                    if self.executions.is_empty() {
                         ui.vertical_centered(|ui| {
                             ui.label("🚀 No backup tasks");
                             ui.label("Click the button above to add a task");
@@ -224,22 +224,22 @@ impl MainPage {
         });
     }
 
-    fn draw_task_item(&mut self, ui: &mut egui::Ui, task_id: Uuid, task_display: &TaskDisplay) {
+    fn draw_task_item(&mut self, ui: &mut egui::Ui, task_id: Uuid, task_display: &ExecutionDisplay) {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(format!("🗂️ {}", task_display.task.source_path.display()));
+                        ui.label(format!("🗂️ {}", task_display.execution.source_path.display()));
                         ui.label(format!(
                             "📁 {}",
-                            task_display.task.destination_path.display()
+                            task_display.execution.destination_path.display()
                         ));
 
                         ui.horizontal(|ui| {
                             // Status indicator
-                            let (color, symbol) = match task_display.task.state {
+                            let (color, symbol) = match task_display.execution.state {
                                 BackupState::Running => (egui::Color32::GREEN, "▶️"),
                                 BackupState::Suspended => (egui::Color32::YELLOW, "⏸️"),
                                 BackupState::Completed => (egui::Color32::BLUE, "✅"),
@@ -250,7 +250,7 @@ impl MainPage {
 
                             ui.colored_label(
                                 color,
-                                format!("{} {:?}", symbol, task_display.task.state),
+                                format!("{} {:?}", symbol, task_display.execution.state),
                             );
 
                             if !task_display.current_folder.is_empty() {
@@ -288,51 +288,51 @@ impl MainPage {
                         }
 
                         // Control buttons
-                        match task_display.task.state {
+                        match task_display.execution.state {
                             BackupState::Pending | BackupState::Suspended => {
                                 if ui.button("▶️ Start").clicked() {
                                     // Immediately update GUI state
-                                    if let Some(mut task) = self.tasks.get_mut(&task_id) {
-                                        task.task.state = BackupState::Running;
+                                    if let Some(mut task) = self.executions.get_mut(&task_id) {
+                                        task.execution.state = BackupState::Running;
                                     }
                                     // Notify system
-                                    self.publish_event(TaskStartRequested { task_id });
+                                    self.publish_event(ExecutionStartRequest { execution_id: task_id });
                                 }
                             }
                             BackupState::Running => {
                                 if ui.button("⏸️ Pause").clicked() {
                                     // Immediately update GUI state
-                                    if let Some(mut task) = self.tasks.get_mut(&task_id) {
-                                        task.task.state = BackupState::Suspended;
+                                    if let Some(mut task) = self.executions.get_mut(&task_id) {
+                                        task.execution.state = BackupState::Suspended;
                                     }
                                     // Notify system
-                                    self.publish_event(TaskSuspendRequested { task_id });
+                                    self.publish_event(ExecutionSuspendRequest { execution_id: task_id });
                                 }
                             }
                             _ => {}
                         }
 
-                        if task_display.task.state == BackupState::Suspended {
+                        if task_display.execution.state == BackupState::Suspended {
                             if ui.button("▶️ Resume").clicked() {
                                 // Immediately update GUI state
-                                if let Some(mut task) = self.tasks.get_mut(&task_id) {
-                                    task.task.state = BackupState::Running;
+                                if let Some(mut task) = self.executions.get_mut(&task_id) {
+                                    task.execution.state = BackupState::Running;
                                 }
                                 // Notify system
-                                self.publish_event(TaskResumeRequested { task_id });
+                                self.publish_event(ExecutionResumeRequested { execution_id: task_id });
                             }
                         }
 
                         if ui.button("🗑️").clicked() {
                             // Immediately update GUI state
-                            self.tasks.remove(&task_id);
+                            self.executions.remove(&task_id);
                             self.error_messages.remove(&task_id);
                             // If currently viewing errors for removed task, close error window
                             if self.viewing_errors_for_task == Some(task_id) {
                                 self.viewing_errors_for_task = None;
                             }
                             // Notify system
-                            self.publish_event(TaskRemoveRequested { task_id });
+                            self.publish_event(ExecutionRemoveRequest { execution_id: task_id });
                         }
                     });
                 });
@@ -344,8 +344,8 @@ impl MainPage {
             let mut show_window = true;
 
             // Get task name for window title
-            let window_title = if let Some(task) = self.tasks.get(&task_id) {
-                format!("Task Errors - {}", task.task.source_path.file_name()
+            let window_title = if let Some(task) = self.executions.get(&task_id) {
+                format!("Task Errors - {}", task.execution.source_path.file_name()
                     .unwrap_or_default()
                     .to_string_lossy())
             } else {
@@ -453,7 +453,7 @@ impl MainPage {
                     ui.horizontal(|ui| {
                         if ui.button("Create Task").clicked() {
                             if !self.new_task_source.is_empty() && !self.new_task_destination.is_empty() {
-                                let task = BackupTask {
+                                let task = BackupExecution {
                                     uuid: Uuid::new_v4(),
                                     state: BackupState::Pending,
                                     source_path: PathBuf::from(&self.new_task_source),
@@ -469,11 +469,11 @@ impl MainPage {
                                 };
 
                                 // Immediately update GUI display
-                                let task_display = TaskDisplay::from(task.clone());
-                                self.tasks.insert(task.uuid, task_display);
+                                let task_display = ExecutionDisplay::from(task.clone());
+                                self.executions.insert(task.uuid, task_display);
 
                                 // Notify system
-                                self.publish_event(TaskAddRequested { task });
+                                self.publish_event(ExecutionAddRequest { execution: task });
 
                                 self.reset_form();
                             }

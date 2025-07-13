@@ -16,5 +16,9 @@ traceable! {
 
         #[error("Failed to execute SQL statement")]
         StatementExecutionFailed  => tracing::Level::ERROR,
+
+        #[no_source]
+        #[error("Data is corrupted or in invalid format")]
+        DataCorrupted => tracing::Level::ERROR,
     }
 }
