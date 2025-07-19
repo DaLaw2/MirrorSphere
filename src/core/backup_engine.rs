@@ -3,11 +3,12 @@ use crate::core::event_bus::EventBus;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
-use crate::model::backup_execution::*;
+use crate::interface::service_unit::ServiceUnit;
+use crate::model::backup::backup_execution::*;
+use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
-use crate::model::error::Error;
-use crate::model::event::tasks::*;
+use crate::model::event::execution::*;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
@@ -17,6 +18,7 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
 
@@ -55,7 +57,9 @@ impl BackupEngine {
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_executions.remove(&uuid) {
                 if shutdown.send(()).is_err() {
-                    log!(TaskError::StopTaskFailed("Fail send shutdown signal to task"));
+                    log!(TaskError::StopExecutionFailed(
+                        "Fail send shutdown signal to task"
+                    ));
                     continue;
                 }
                 if let Err(err) = handle.await {
@@ -75,16 +79,16 @@ impl BackupEngine {
 
     pub async fn start_execution(&self, uuid: Uuid) -> Result<(), Error> {
         if self.running_executions.contains_key(&uuid) {
-            Err(TaskError::IllegalTaskState)?
+            Err(TaskError::IllegalExecutionState)?
         }
 
         let mut ref_mut = self
             .executions
             .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+            .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Pending {
-            Err(TaskError::IllegalTaskState)?
+            Err(TaskError::IllegalExecutionState)?
         }
         execution.state = BackupState::Running;
 
@@ -100,10 +104,10 @@ impl BackupEngine {
         let mut ref_mut = self
             .executions
             .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+            .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Running {
-            Err(TaskError::IllegalTaskState)?
+            Err(TaskError::IllegalExecutionState)?
         }
         execution.state = BackupState::Suspended;
         drop(ref_mut);
@@ -111,24 +115,26 @@ impl BackupEngine {
         let (_, (shutdown, handle)) = self
             .running_executions
             .remove(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
-        shutdown.send(()).map_err(|_| TaskError::StopTaskFailed("Fail send shutdown signal to task"))?;
+            .ok_or(TaskError::ExecutionNotFound)?;
+        shutdown
+            .send(())
+            .map_err(|_| TaskError::StopExecutionFailed("Fail send shutdown signal to execution"))?;
         handle.await.map_err(|err| SystemError::ThreadPanic(err))?;
         Ok(())
     }
 
     pub async fn resume_execution(&self, uuid: Uuid) -> Result<(), Error> {
         if self.running_executions.contains_key(&uuid) {
-            Err(TaskError::IllegalTaskState)?
+            Err(TaskError::IllegalExecutionState)?
         }
 
         let mut ref_mut = self
             .executions
             .get_mut(&uuid)
-            .ok_or(TaskError::TaskNotFound)?;
+            .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Suspended {
-            Err(TaskError::IllegalTaskState)?
+            Err(TaskError::IllegalExecutionState)?
         }
         execution.state = BackupState::Running;
 
@@ -146,7 +152,13 @@ impl BackupEngine {
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
         let running_executions = self.running_executions.clone();
-        ExecutionRunner::new(config, io_manager, progress_tracker, executions, running_executions)
+        ExecutionRunner::new(
+            config,
+            io_manager,
+            progress_tracker,
+            executions,
+            running_executions,
+        )
     }
 }
 
@@ -175,7 +187,12 @@ impl ExecutionRunner {
         }
     }
 
-    async fn run(&self, execution: BackupExecution, mut shutdown: oneshot::Receiver<()>, resume: bool) {
+    async fn run(
+        &self,
+        execution: BackupExecution,
+        mut shutdown: oneshot::Receiver<()>,
+        resume: bool,
+    ) {
         let config = &self.config;
         let progress_tracker = &self.progress_tracker;
 
@@ -213,7 +230,7 @@ impl ExecutionRunner {
                     shutdown_flag = true;
                     for shutdown in worker_shutdowns {
                         if shutdown.send(()).is_err() {
-                            log!(TaskError::StopTaskFailed("Fail send shutdown signal to task"));
+                            log!(TaskError::StopExecutionFailed("Fail send shutdown signal to task"));
                         }
                     }
                     join_all(&mut worker_handles).await
@@ -254,7 +271,7 @@ impl ExecutionRunner {
                     execution.state = BackupState::Completed;
                 }
             }
-            None => log!(TaskError::TaskNotFound),
+            None => log!(TaskError::ExecutionNotFound),
         }
     }
 
@@ -456,7 +473,8 @@ impl Worker {
             self.follow_symlink(execution, source_path, destination_path)
                 .await
         } else {
-            self.copy_symlink(execution, source_path, destination_path).await
+            self.copy_symlink(execution, source_path, destination_path)
+                .await
         }
     }
 
@@ -632,53 +650,38 @@ impl Worker {
 }
 
 #[async_trait]
-pub trait RunBackupEngine {
-    async fn run(&self) -> oneshot::Sender<()>;
-}
-
-#[async_trait]
-impl RunBackupEngine for Arc<BackupEngine> {
-    async fn run(&self) -> oneshot::Sender<()> {
+impl ServiceUnit for BackupEngine {
+    async fn run_impl(self: Arc<Self>, mut shutdown_rx: Receiver<()>) {
         let backup_engine = self.clone();
         let event_bus = self.event_bus.clone();
-        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-
-        let _ = tokio::spawn(async move {
-            let add_execution = event_bus.subscribe::<ExecutionAddRequest>();
-            let remove_execution = event_bus.subscribe::<ExecutionRemoveRequest>();
-            let start_execution = event_bus.subscribe::<ExecutionStartRequest>();
-            let resume_execution = event_bus.subscribe::<ExecutionResumeRequested>();
-            let suspend_execution = event_bus.subscribe::<ExecutionSuspendRequest>();
-            loop {
-                if shutdown_rx.try_recv().is_ok() {
-                    break;
-                }
-
-                while let Ok(event) = add_execution.try_recv() {
-                    backup_engine.add_execution(event.execution).await;
-                }
-
-                while let Ok(event) = remove_execution.try_recv() {
-                    backup_engine.remove_execution(&event.execution_id).await;
-                }
-
-                while let Ok(event) = start_execution.try_recv() {
-                    //todo Need add error handle
-                    let _ = backup_engine.start_execution(event.execution_id).await;
-                }
-
-                while let Ok(event) = resume_execution.try_recv() {
-                    //todo Need add error handle
-                    let _ = backup_engine.resume_execution(event.execution_id).await;
-                }
-
-                while let Ok(event) = suspend_execution.try_recv() {
-                    //todo Need add error handle
-                    let _ = backup_engine.suspend_execution(event.execution_id).await;
-                }
+        let add_execution = event_bus.subscribe::<ExecutionAddRequest>();
+        let remove_execution = event_bus.subscribe::<ExecutionRemoveRequest>();
+        let start_execution = event_bus.subscribe::<ExecutionStartRequest>();
+        let resume_execution = event_bus.subscribe::<ExecutionResumeRequested>();
+        let suspend_execution = event_bus.subscribe::<ExecutionSuspendRequest>();
+        loop {
+            if shutdown_rx.try_recv().is_ok() {
+                break;
             }
-        });
 
-        shutdown_tx
+            while let Ok(event) = add_execution.try_recv() {
+                backup_engine.add_execution(event.execution).await;
+            }
+            while let Ok(event) = remove_execution.try_recv() {
+                backup_engine.remove_execution(&event.execution_id).await;
+            }
+            while let Ok(event) = start_execution.try_recv() {
+                //todo Need add error handle
+                let _ = backup_engine.start_execution(event.execution_id).await;
+            }
+            while let Ok(event) = resume_execution.try_recv() {
+                //todo Need add error handle
+                let _ = backup_engine.resume_execution(event.execution_id).await;
+            }
+            while let Ok(event) = suspend_execution.try_recv() {
+                //todo Need add error handle
+                let _ = backup_engine.suspend_execution(event.execution_id).await;
+            }
+        }
     }
 }

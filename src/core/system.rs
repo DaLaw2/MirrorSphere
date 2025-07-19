@@ -1,9 +1,13 @@
+use std::mem;
 use crate::core::app_config::AppConfig;
-use crate::core::backup_engine::{BackupEngine, RunBackupEngine};
+use crate::core::backup_engine::BackupEngine;
 use crate::core::database_manager::DatabaseManager;
 use crate::core::event_bus::EventBus;
+use crate::core::gui_manager::GuiManager;
 use crate::core::io_manager::IOManager;
 use crate::core::progress_tracker::ProgressTracker;
+use crate::core::schedule_manager::ScheduleManager;
+use crate::interface::service_unit::ServiceUnit;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 #[cfg(not(debug_assertions))]
@@ -17,6 +21,7 @@ use privilege::user::privileged;
 use std::process;
 use std::sync::Arc;
 use tokio::sync::oneshot;
+use crate::model::error::system::SystemError;
 
 pub struct System {
     pub event_bus: Arc<EventBus>,
@@ -25,12 +30,14 @@ pub struct System {
     pub progress_tracker: Arc<ProgressTracker>,
     pub database_lock: DatabaseLock,
     pub database_manager: Arc<DatabaseManager>,
+    pub gui_manager: Arc<GuiManager>,
+    pub schedule_manager: Arc<ScheduleManager>,
     pub backup_engine: Arc<BackupEngine>,
-    pub backup_engine_shutdown: Option<oneshot::Sender<()>>,
+    pub shutdowns: Vec<oneshot::Sender<()>>,
 }
 
 impl System {
-    pub async fn new(event_bus: Arc<EventBus>) -> Result<Self, Error> {
+    pub async fn new() -> Result<Self, Error> {
         Logging::initialize().await;
         log!(SystemLog::Initializing);
         #[cfg(not(debug_assertions))]
@@ -40,10 +47,17 @@ impl System {
             process::exit(0);
         }
         let app_config = Arc::new(AppConfig::new()?);
+        let event_bus = Arc::new(EventBus::new());
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
         let database_lock = DatabaseLock::acquire().await?;
         let database_manager = Arc::new(DatabaseManager::new().await?);
+        let gui_manager = Arc::new(GuiManager::new(event_bus.clone()));
+        let schedule_manager = Arc::new(ScheduleManager::new(
+            app_config.clone(),
+            event_bus.clone(),
+            database_manager.clone(),
+        ));
         let backup_engine = Arc::new(
             BackupEngine::new(
                 app_config.clone(),
@@ -61,21 +75,29 @@ impl System {
             progress_tracker,
             database_lock,
             database_manager,
+            gui_manager,
+            schedule_manager,
             backup_engine,
-            backup_engine_shutdown: None,
+            shutdowns: Vec::new(),
         })
     }
 
-    pub async fn run(&mut self) {
-        let shutdown = self.backup_engine.run().await;
-        self.backup_engine_shutdown = Some(shutdown);
+    pub async fn run(&mut self) -> Result<(), Error>{
+        let gui_manager = self.gui_manager.clone();
+        let schedule_manager_shutdown = self.schedule_manager.clone().run().await;
+        let backup_engine_shutdown = self.backup_engine.clone().run().await;
+        self.shutdowns.push(schedule_manager_shutdown);
+        self.shutdowns.push(backup_engine_shutdown);
+        gui_manager.start()
     }
 
     pub async fn terminate(&mut self) {
         log!(SystemLog::Terminating);
-        if let Some(backup_engine_shutdown) = self.backup_engine_shutdown.take() {
-            //todo Need add error handle
-            let _ = backup_engine_shutdown.send(());
+        let shutdowns = mem::take(&mut self.shutdowns);
+        for shutdown in shutdowns {
+            if shutdown.send(()).is_err() {
+                //todo Add new error type, send signal failed
+            }
         }
         self.backup_engine.stop_all_executions().await;
         self.database_manager.close_connection().await;

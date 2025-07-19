@@ -5,14 +5,20 @@ use crate::ui::main_page::MainPage;
 use eframe::egui;
 use std::sync::Arc;
 
-pub struct GuiManager;
+pub struct GuiManager {
+    event_bus: Arc<EventBus>
+}
 
 impl GuiManager {
-    pub fn new() -> Self {
-        Self {}
+    pub fn new(event_bus: Arc<EventBus>) -> Self {
+        Self {
+            event_bus
+        }
     }
 
-    pub fn start(&self, event_bus: Arc<EventBus>) -> Result<(), Error> {
+    pub fn start(&self) -> Result<(), Error> {
+        let event_bus = self.event_bus.clone();
+
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
                 .with_inner_size([1200.0, 800.0])

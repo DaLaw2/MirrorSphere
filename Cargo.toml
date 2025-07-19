@@ -8,7 +8,7 @@ async-trait = "0.1.88"
 bincode = { version = "2.0.1", features = ["serde"] }
 blake2 = "0.10.6"
 blake3 = { version = "1.8.2", features = ["traits-preview"] }
-chrono = "0.4.41"
+chrono = { version = "0.4.41", features = ["serde"] }
 crossbeam-queue = "0.3.11"
 dashmap = "6.1.0"
 digest = "0.10.7"
@@ -27,7 +27,7 @@ serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sha2 = "0.10.8"
 sha3 = "0.10.8"
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid", "derive"] }
+sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid", "derive", "chrono"] }
 thiserror = "2.0.12"
 tokio-stream = "0.1.17"
 tokio = { version = "1.45.1", features = ["full"] }

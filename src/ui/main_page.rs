@@ -3,8 +3,8 @@ use crate::interface::event::Event;
 use crate::model::error::Error;
 use crate::model::event::error::BackupError;
 use crate::model::event::filesystem::FolderProcessing;
-use crate::model::event::tasks::{ExecutionAddRequest, ExecutionProgress, ExecutionRemoveRequest, ExecutionResumeRequested, ExecutionStartRequest, ExecutionStateChanged, ExecutionSuspendRequest};
-use crate::model::backup_execution::{BackupOptions, BackupState, BackupExecution, BackupType};
+use crate::model::event::execution::*;
+use crate::model::backup::backup_execution::{BackupOptions, BackupState, BackupExecution, BackupType};
 use dashmap::DashMap;
 use eframe::egui;
 use eframe::{App, Frame};
@@ -74,14 +74,14 @@ pub struct MainPage {
 
 impl MainPage {
     pub fn new(event_bus: Arc<EventBus>) -> Self {
-        let task_state_events = event_bus.subscribe::<ExecutionStateChanged>();
+        let execution_state_events = event_bus.subscribe::<ExecutionStateChanged>();
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
         let progress_events = event_bus.subscribe::<ExecutionProgress>();
         let backup_error_events = event_bus.subscribe::<BackupError>();
 
         Self {
             event_bus,
-            execution_state_events: task_state_events,
+            execution_state_events,
             folder_processing_events,
             progress_events,
             backup_error_events,
@@ -531,6 +531,7 @@ impl App for MainPage {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         info!("GUI is shutting down...");
+        //todo
     }
 
     //todo Need add log viewer

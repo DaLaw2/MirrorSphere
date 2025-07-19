@@ -1,7 +1,7 @@
 use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;
 use crate::model::error::Error;
-use crate::model::backup_execution::HashType;
+use crate::model::backup::backup_execution::HashType;
 use crate::platform::attributes::*;
 use crate::utils::file_hash::*;
 use crate::utils::file_lock::FileLock;

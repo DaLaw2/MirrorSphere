@@ -30,5 +30,9 @@ traceable! {
         #[no_source]
         #[error("Unknown error")]
         UnknownError => tracing::Level::ERROR,
+
+        #[no_source]
+        #[error("Task already running")]
+        IllegalRunState => tracing::Level::ERROR,
     }
 }
