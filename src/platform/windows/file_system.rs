@@ -1,11 +1,10 @@
-use crate::core::event_system::event_bus::EventBus;
 use crate::interface::file_system::FileSystemTrait;
-use crate::model::event::io::attributes::{GetAttributesEvent, SetAttributesEvent};
-use crate::model::event::io::permission::GetPermissionEvent;
+use crate::model::error::io::IOError;
+use crate::model::error::misc::MiscError;
+use crate::model::error::system::SystemError;
+use crate::model::error::Error;
 use crate::platform::attributes::{Attributes, Permissions};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
-use crate::utils::log_entry::io::IOEntry;
-use crate::utils::log_entry::system::SystemEntry;
 use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Timelike};
 use std::os::windows::ffi::OsStrExt;
@@ -16,7 +15,6 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
-use uuid::Uuid;
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_ALL, SYSTEMTIME};
 use windows::Win32::Security::Authorization::{
@@ -24,104 +22,119 @@ use windows::Win32::Security::Authorization::{
 };
 use windows::Win32::Security::{ACL, BACKUP_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, SetFileAttributesW, SetFileTime, FILE_ATTRIBUTE_ARCHIVE, FILE_ATTRIBUTE_HIDDEN,
-    FILE_ATTRIBUTE_NORMAL, FILE_ATTRIBUTE_NOT_CONTENT_INDEXED, FILE_ATTRIBUTE_READONLY,
-    FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, SetFileAttributesW, SetFileTime, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE,
+    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
 };
 use windows::Win32::System::Time::SystemTimeToFileTime;
 
-#[cfg(target_os = "windows")]
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
 }
 
 #[async_trait]
-#[cfg(target_os = "windows")]
 impl FileSystemTrait for FileSystem {
     fn new(semaphore: Arc<Semaphore>) -> Self {
-        FileSystem { semaphore }
+        Self { semaphore }
     }
 
     fn semaphore(&self) -> Arc<Semaphore> {
         self.semaphore.clone()
     }
 
-    async fn get_attributes(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Attributes> {
+    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
-        let metadata = tokio::fs::metadata(&path)
+        if link_path.is_dir() {
+            tokio::fs::symlink_dir(target, link_path).await
+        } else {
+            tokio::fs::symlink_file(target, link_path).await
+        }
+        .map_err(|err| IOError::CreateSymbolLinkFailed(target.clone(), link_path.clone(), err))?;
+
+        Ok(())
+    }
+
+    async fn copy_symlink(
+        &self,
+        source_link: &PathBuf,
+        destination_link: &PathBuf,
+    ) -> Result<(), Error> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
             .await
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
-        let (read_only, hidden, archive, normal, index) = {
-            let attributes = metadata.file_attributes();
-            (
-                (attributes & FILE_ATTRIBUTE_READONLY.0) != 0,
-                (attributes & FILE_ATTRIBUTE_HIDDEN.0) != 0,
-                (attributes & FILE_ATTRIBUTE_ARCHIVE.0) != 0,
-                (attributes & FILE_ATTRIBUTE_NORMAL.0) != 0,
-                (attributes & FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0) != 0,
-            )
-        };
+        let link_target =
+            tokio::fs::read_link(source_link)
+                .await
+                .map_err(|err| IOError::ReadSymbolLinkFailed(source_link.clone(), err))?;
+
+        if link_target.is_dir() {
+            tokio::fs::symlink_dir(&link_target, destination_link).await
+        } else {
+            tokio::fs::symlink_file(&link_target, destination_link).await
+        }
+        .map_err(|err| IOError::CreateSymbolLinkFailed(link_target, destination_link, err))?;
+
+        Ok(())
+    }
+
+    async fn get_attributes(&self, path: &PathBuf) -> Result<Attributes, Error> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
+
+        let metadata = tokio::fs::metadata(path)
+            .await
+            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+
+        let attributes = metadata.file_attributes();
 
         let creation_time = metadata
             .created()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
         let last_access_time = metadata
             .accessed()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
         let change_time = metadata
             .modified()
-            .map_err(|_| IOEntry::GetMetadataFailed)?;
+            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
 
         let attributes = Attributes {
-            read_only,
-            hidden,
-            archive,
-            normal,
-            index,
+            attributes,
             creation_time,
             last_access_time,
             change_time,
         };
 
-        let event = GetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
-
         Ok(attributes)
     }
 
-    async fn set_attributes(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        attributes: Attributes,
-    ) -> anyhow::Result<()> {
+    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|_| IOEntry::SemaphoreClosed)?;
+            .map_err(|err| IOError::SemaphoreClosed(err))?;
 
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-        let mut file_attributes: u32 = 0;
-        file_attributes |= FILE_ATTRIBUTE_READONLY.0;
-        file_attributes |= FILE_ATTRIBUTE_HIDDEN.0;
-        file_attributes |= FILE_ATTRIBUTE_ARCHIVE.0;
-        file_attributes |= FILE_ATTRIBUTE_NORMAL.0;
-        file_attributes |= FILE_ATTRIBUTE_NOT_CONTENT_INDEXED.0;
+        let file_attributes = attributes.attributes;
 
+        let path = path.clone();
         spawn_blocking(move || unsafe {
             SetFileAttributesW(
                 PCWSTR(file_path_wild.as_ptr()),
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+            .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -132,7 +145,7 @@ impl FileSystemTrait for FileSystem {
                 FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
                 None,
             )
-            .map_err(|_| IOEntry::SetMetadataFailed)?;
+            .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
 
             let creation_filetime = Self::system_time_to_file_time(attributes.creation_time)?;
             let last_access_filetime = Self::system_time_to_file_time(attributes.last_access_time)?;
@@ -145,36 +158,22 @@ impl FileSystemTrait for FileSystem {
                 Some(&change_filetime),
             );
 
-            CloseHandle(handle)
-                .map_err(|_| SystemEntry::ObjectFreeFailed)?;
+            CloseHandle(handle).map_err(|err| MiscError::ObjectFreeFailed(err))?;
 
-            result
-                .map_err(|_| IOEntry::SetMetadataFailed)?;
-            
-            Ok::<(), anyhow::Error>(())
+            result.map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
+
+            Ok::<(), Error>(())
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)??;
+        .map_err(|err| SystemError::ThreadPanic(err))??;
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 
-    async fn compare_attributes(
-        &self,
-        task_id: Uuid,
-        source: PathBuf,
-        destination: PathBuf,
-    ) -> anyhow::Result<bool> {
-        let source_attributes = self.get_attributes(task_id, source).await?;
-        let destination_attributes = self.get_attributes(task_id, destination).await?;
-        Ok(source_attributes == destination_attributes)
-    }
-
-    async fn get_permission(&self, task_id: Uuid, path: PathBuf) -> anyhow::Result<Permissions> {
+    async fn get_permission(&self, path: &PathBuf) -> Result<Permissions, Error> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
+        let path = path.clone();
         let permission = spawn_blocking(move || unsafe {
             let security_info = BACKUP_SECURITY_INFORMATION;
             let mut owner = PSID::default();
@@ -183,7 +182,7 @@ impl FileSystemTrait for FileSystem {
             let mut sacl: *mut ACL = ptr::null_mut();
             let mut security_descriptor = PSECURITY_DESCRIPTOR::default();
 
-            if GetNamedSecurityInfoW(
+            let result = GetNamedSecurityInfoW(
                 PCWSTR(file_path_wild.as_ptr()),
                 SE_FILE_OBJECT,
                 security_info,
@@ -192,13 +191,13 @@ impl FileSystemTrait for FileSystem {
                 Some(&mut dacl),
                 Some(&mut sacl),
                 &mut security_descriptor,
-            )
-            .is_err()
-            {
-                Err(IOEntry::GetMetadataFailed)?;
+            );
+
+            if result.is_err() {
+                Err(IOError::GetMetadataFailed(path.clone(), format!("{:?}", result)))?;
             }
 
-            Ok::<Permissions, anyhow::Error>(Permissions {
+            Ok::<Permissions, Error>(Permissions {
                 owner,
                 primary_group,
                 dacl,
@@ -207,19 +206,12 @@ impl FileSystemTrait for FileSystem {
             })
         })
         .await
-        .map_err(|_| SystemEntry::ThreadPanic)??;
+        .map_err(|err| SystemError::ThreadPanic(err))??;
 
-        let event = GetPermissionEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(permission)
     }
 
-    async fn set_permission(
-        &self,
-        task_id: Uuid,
-        path: PathBuf,
-        permissions: Permissions,
-    ) -> anyhow::Result<()> {
+    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> Result<(), Error> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
         let security_info = BACKUP_SECURITY_INFORMATION;
@@ -230,7 +222,7 @@ impl FileSystemTrait for FileSystem {
         let security_descriptor = permissions.security_descriptor;
 
         unsafe {
-            if SetNamedSecurityInfoW(
+            let result = SetNamedSecurityInfoW(
                 PCWSTR(file_path_wild.as_ptr()),
                 SE_FILE_OBJECT,
                 security_info,
@@ -238,29 +230,27 @@ impl FileSystemTrait for FileSystem {
                 Some(primary_group),
                 Some(dacl),
                 Some(sacl),
-            )
-            .is_err()
-            {
-                Err(IOEntry::SetMetadataFailed)?;
+            );
+
+            if result.is_err() {
+                Err(IOError::SetMetadataFailed(path.clone(), format!("{:?}", result)))?;
             }
         }
 
         drop(security_descriptor);
 
-        let event = SetAttributesEvent { task_id, path };
-        EventBus::publish(event).await?;
         Ok(())
     }
 }
 
 impl FileSystem {
-    fn system_time_to_file_time(system_time: SystemTime) -> anyhow::Result<FILETIME> {
+    fn system_time_to_file_time(system_time: SystemTime) -> Result<FILETIME, Error> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| SystemEntry::InternalError)?;
+            .map_err(|err| SystemError::UnexpectError(err))?;
 
         let epoch = DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
-            .ok_or_else(|| SystemEntry::InternalError)?;
+            .ok_or(SystemError::UnknownError)?;
 
         let sys_time = SYSTEMTIME {
             wYear: epoch.year() as u16,
@@ -277,7 +267,7 @@ impl FileSystem {
 
         unsafe {
             SystemTimeToFileTime(&sys_time, &mut file_time)
-                .map_err(|_| SystemEntry::InternalError)?;
+                .map_err(|err| SystemError::UnexpectError(err))?;
             Ok(file_time)
         }
     }

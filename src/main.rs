@@ -8,8 +8,9 @@ mod ui;
 mod utils;
 
 #[tokio::main]
-async fn main() {
-    System::initialize().await;
-    System::run().await;
-    System::terminate().await;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut system = System::new().await?;
+    system.run().await?;
+    system.terminate().await;
+    Ok(())
 }

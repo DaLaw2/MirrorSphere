@@ -1,62 +1,65 @@
-use crate::interface::database_ops::DatabaseOpsTrait;
+use crate::interface::repository::schedule::ScheduleRepository;
+use crate::model::error::Error;
+use crate::model::error::database::DatabaseError;
+use crate::model::log::database::DatabaseLog;
+use crate::model::log::system::SystemLog;
 use crate::platform::constants::*;
-use crate::platform::database_ops::DatabaseOps;
-use crate::utils::log_entry::database::DatabaseEntry;
-use crate::utils::log_entry::system::SystemEntry;
+use macros::log;
 use sqlx::SqlitePool;
-use std::ops::Deref;
-use std::sync::OnceLock;
-use tracing::{info, trace};
-
-static DATABASE_MANAGER: OnceLock<DatabaseManager> = OnceLock::new();
+use tokio::fs;
+use tokio::fs::File;
 
 #[derive(Debug)]
 pub struct DatabaseManager {
-    ops: DatabaseOps,
+    pool: SqlitePool,
 }
 
 impl DatabaseManager {
-    pub async fn initialization() {
-        info!("{}", SystemEntry::Initializing);
-        DatabaseOps::lock_database().await.unwrap();
-        if !DatabaseOps::exist_database().await {
-            DatabaseOps::create_database().await.unwrap();
+    pub async fn new() -> Result<Self, Error> {
+        log!(SystemLog::Initializing);
+        if !Self::exist_database().await {
+            Self::create_database().await?;
         }
-        let instance = match SqlitePool::connect(DATABASE_URL).await {
-            Ok(pool) => {
-                info!("{}", DatabaseEntry::DatabaseConnectSuccess);
-                DatabaseManager {
-                    ops: DatabaseOps::new(pool),
-                }
-            }
-            Err(err) => {
-                trace!(?err);
-                panic!("{}", DatabaseEntry::DatabaseConnectFailed);
-            }
-        };
-        if !instance.exist_table("BackupTasks").await {
-            instance.create_backup_task_table().await.unwrap();
+        let pool = SqlitePool::connect(DATABASE_URL)
+            .await
+            .map_err(|err| DatabaseError::DatabaseConnectFailed(err))?;
+        log!(DatabaseLog::DatabaseConnectSuccess);
+        let database_manager = Self { pool };
+        if !database_manager.exist_table("BackupSchedules").await {
+            database_manager.create_backup_schedule_table().await?;
         }
-        DATABASE_MANAGER.set(instance).unwrap();
-        info!("{}", SystemEntry::InitializeComplete);
+        log!(SystemLog::InitializeComplete);
+        Ok(database_manager)
     }
 
-    pub fn instance() -> &'static DatabaseManager {
-        // Initialization has been ensured
-        DATABASE_MANAGER.get().unwrap()
+    pub fn get_pool(&self) -> SqlitePool {
+        self.pool.clone()
     }
 
-    pub async fn terminate() {
-        let instance = DatabaseManager::instance();
-        instance.close_connection().await;
-        let _ = DatabaseOps::unlock_database().await;
+    pub async fn close_connection(&self) {
+        let pool = self.get_pool();
+        pool.close().await
     }
-}
 
-impl Deref for DatabaseManager {
-    type Target = DatabaseOps;
+    pub async fn exist_database() -> bool {
+        fs::metadata(DATABASE_PATH).await.is_ok()
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.ops
+    pub async fn create_database() -> Result<(), Error> {
+        let _ = File::create(DATABASE_PATH)
+            .await
+            .map_err(|err| DatabaseError::CreateDatabaseFailed(err))?;
+        Ok(())
+    }
+
+    pub async fn exist_table(&self, table_name: &str) -> bool {
+        let pool = self.get_pool();
+        sqlx::query_scalar::<_, bool>(
+            "SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name = ?)",
+        )
+        .bind(table_name)
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(false)
     }
 }

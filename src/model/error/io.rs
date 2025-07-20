@@ -1,0 +1,55 @@
+use macros::traceable;
+use std::path::PathBuf;
+
+traceable! {
+    IOError {
+        #[error("Semaphore has been closed")]
+        SemaphoreClosed => tracing::Level::ERROR,
+        
+        #[error("Failed to read symbol link: {path}")]      
+        ReadSymbolLinkFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to create symbol link: From {src} To {dst}")]       
+        CreateSymbolLinkFailed { src: PathBuf, dst: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to create directory: {path}")]
+        CreateDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to read directory: {path}")]
+        ReadDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to create file: {path}")]
+        CreateFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to read file: {path}")]
+        ReadFileFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to copy file: From {src} To {dst}")]
+        CopyFileFailed { src: PathBuf, dst: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to write file: {path}")]
+        WriteFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to delete directory: {path}")]
+        DeleteDirectoryFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to delete file: {path}")]
+        DeleteFileFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to get file metadata: {path}")]
+        GetMetadataFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[error("Failed to set file metadata: {path}")]
+        SetMetadataFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to lock file: {path}")]
+        LockFileFailed { path: PathBuf } => tracing::Level::ERROR,
+        
+        #[error("Failed to unlock file: {path}")]     
+        UnlockFileFailed { path: PathBuf } => tracing::Level::ERROR,
+
+        #[no_source]
+        #[error("File does not exist: {path}")]
+        FileDoesNotExist { path: PathBuf } => tracing::Level::ERROR,
+    }
+}
