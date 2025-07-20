@@ -68,6 +68,7 @@ impl System {
             .await,
         );
         let gui_manager = Arc::new(GuiManager::new(
+            app_config.clone(),
             event_bus.clone(),
             backup_engine.clone(),
             schedule_manager.clone(),
@@ -106,6 +107,7 @@ impl System {
         }
         self.backup_engine.stop_all_executions().await;
         self.database_manager.close_connection().await;
+        self.io_manager.terminate();
         log!(SystemLog::TerminateComplete);
     }
 }

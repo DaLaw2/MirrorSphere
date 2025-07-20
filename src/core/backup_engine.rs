@@ -18,7 +18,6 @@ use std::collections::{HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
 use tracing::error;
 use uuid::Uuid;
@@ -651,7 +650,7 @@ impl Worker {
 
 #[async_trait]
 impl ServiceUnit for BackupEngine {
-    async fn run_impl(self: Arc<Self>, mut shutdown_rx: Receiver<()>) {
+    async fn run_impl(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
         let backup_engine = self.clone();
         let event_bus = self.event_bus.clone();
         let add_execution = event_bus.subscribe::<ExecutionAddRequest>();
@@ -672,17 +671,17 @@ impl ServiceUnit for BackupEngine {
             }
             while let Ok(event) = start_execution.try_recv() {
                 if let Err(err) = backup_engine.start_execution(event.execution_id).await {
-                    error!(err);
+                    error!("{}", err);
                 }
             }
             while let Ok(event) = resume_execution.try_recv() {
                 if let Err(err) = backup_engine.resume_execution(event.execution_id).await {
-                    error!(err);
+                    error!("{}", err);
                 }
             }
             while let Ok(event) = suspend_execution.try_recv() {
                 if let Err(err) = backup_engine.suspend_execution(event.execution_id).await {
-                    error!(err);
+                    error!("{}", err);
                 }
             }
         }

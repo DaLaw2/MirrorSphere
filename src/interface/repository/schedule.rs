@@ -1,5 +1,5 @@
 use crate::core::database_manager::DatabaseManager;
-use crate::model::backup::backup_schedule::{BackupSchedule, ScheduleState};
+use crate::model::backup::backup_schedule::BackupSchedule;
 use crate::model::error::Error;
 use crate::model::error::database::DatabaseError;
 use crate::model::error::misc::MiscError;
@@ -26,9 +26,9 @@ impl ScheduleRepository for DatabaseManager {
                 state TEXT NOT NULL,
                 source_path TEXT NOT NULL,
                 destination_path TEXT NOT NULL,
-                backup_type: TEXT NOT NULL,
-                comparison_mode: TEXT,
-                options: TEXT NOT NULL,
+                backup_type TEXT NOT NULL,
+                comparison_mode TEXT,
+                options TEXT NOT NULL,
                 interval TEXT NOT NULL,
                 last_run_time TEXT,
                 next_run_time TEXT,

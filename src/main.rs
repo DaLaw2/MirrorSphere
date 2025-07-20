@@ -1,7 +1,4 @@
-use crate::core::event_bus::EventBus;
-use crate::core::gui_manager::GuiManager;
 use crate::core::system::System;
-use std::sync::Arc;
 
 mod core;
 mod interface;
