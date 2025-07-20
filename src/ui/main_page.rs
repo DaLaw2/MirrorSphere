@@ -1,17 +1,21 @@
+use crate::core::backup_engine::BackupEngine;
 use crate::core::event_bus::EventBus;
+use crate::core::schedule_manager::ScheduleManager;
 use crate::interface::event::Event;
+use crate::model::backup::backup_execution::*;
 use crate::model::error::Error;
 use crate::model::event::error::BackupError;
-use crate::model::event::filesystem::FolderProcessing;
 use crate::model::event::execution::*;
-use crate::model::backup::backup_execution::{BackupOptions, BackupState, BackupExecution, BackupType};
+use crate::model::event::filesystem::FolderProcessing;
+use crate::model::log::system::SystemLog;
 use dashmap::DashMap;
 use eframe::egui;
 use eframe::{App, Frame};
 use egui_file_dialog::FileDialog;
+use macros::log;
 use std::path::PathBuf;
-use std::sync::mpsc::Receiver;
 use std::sync::Arc;
+use std::sync::mpsc::Receiver;
 use tracing::info;
 use uuid::Uuid;
 
@@ -42,6 +46,8 @@ enum FolderSelectionMode {
 
 pub struct MainPage {
     event_bus: Arc<EventBus>,
+    backup_engine: Arc<BackupEngine>,
+    schedule_manager: Arc<ScheduleManager>,
 
     // Event receivers - only subscribe to system-initiated state changes
     execution_state_events: Receiver<ExecutionStateChanged>,
@@ -73,7 +79,11 @@ pub struct MainPage {
 }
 
 impl MainPage {
-    pub fn new(event_bus: Arc<EventBus>) -> Self {
+    pub fn new(
+        event_bus: Arc<EventBus>,
+        backup_engine: Arc<BackupEngine>,
+        schedule_manager: Arc<ScheduleManager>,
+    ) -> Self {
         let execution_state_events = event_bus.subscribe::<ExecutionStateChanged>();
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
         let progress_events = event_bus.subscribe::<ExecutionProgress>();
@@ -81,6 +91,8 @@ impl MainPage {
 
         Self {
             event_bus,
+            backup_engine,
+            schedule_manager,
             execution_state_events,
             folder_processing_events,
             progress_events,
@@ -183,7 +195,11 @@ impl MainPage {
                     .count();
                 ui.label(format!("Completed: {}", completed_count));
 
-                let error_count: usize = self.error_messages.iter().map(|entry| entry.value().len()).sum();
+                let error_count: usize = self
+                    .error_messages
+                    .iter()
+                    .map(|entry| entry.value().len())
+                    .sum();
                 if error_count > 0 {
                     ui.separator();
                     ui.colored_label(egui::Color32::RED, format!("Total Errors: {}", error_count));
@@ -195,7 +211,9 @@ impl MainPage {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    let tasks_to_show: Vec<(Uuid, ExecutionDisplay)> = self.executions.iter()
+                    let tasks_to_show: Vec<(Uuid, ExecutionDisplay)> = self
+                        .executions
+                        .iter()
                         .filter_map(|entry| {
                             let (task_id, task_display) = (entry.key(), entry.value());
 
@@ -224,14 +242,22 @@ impl MainPage {
         });
     }
 
-    fn draw_task_item(&mut self, ui: &mut egui::Ui, task_id: Uuid, task_display: &ExecutionDisplay) {
+    fn draw_task_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        task_id: Uuid,
+        task_display: &ExecutionDisplay,
+    ) {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(format!("🗂️ {}", task_display.execution.source_path.display()));
+                        ui.label(format!(
+                            "🗂️ {}",
+                            task_display.execution.source_path.display()
+                        ));
                         ui.label(format!(
                             "📁 {}",
                             task_display.execution.destination_path.display()
@@ -296,7 +322,9 @@ impl MainPage {
                                         task.execution.state = BackupState::Running;
                                     }
                                     // Notify system
-                                    self.publish_event(ExecutionStartRequest { execution_id: task_id });
+                                    self.publish_event(ExecutionStartRequest {
+                                        execution_id: task_id,
+                                    });
                                 }
                             }
                             BackupState::Running => {
@@ -306,7 +334,9 @@ impl MainPage {
                                         task.execution.state = BackupState::Suspended;
                                     }
                                     // Notify system
-                                    self.publish_event(ExecutionSuspendRequest { execution_id: task_id });
+                                    self.publish_event(ExecutionSuspendRequest {
+                                        execution_id: task_id,
+                                    });
                                 }
                             }
                             _ => {}
@@ -319,7 +349,9 @@ impl MainPage {
                                     task.execution.state = BackupState::Running;
                                 }
                                 // Notify system
-                                self.publish_event(ExecutionResumeRequested { execution_id: task_id });
+                                self.publish_event(ExecutionResumeRequested {
+                                    execution_id: task_id,
+                                });
                             }
                         }
 
@@ -332,7 +364,9 @@ impl MainPage {
                                 self.viewing_errors_for_task = None;
                             }
                             // Notify system
-                            self.publish_event(ExecutionRemoveRequest { execution_id: task_id });
+                            self.publish_event(ExecutionRemoveRequest {
+                                execution_id: task_id,
+                            });
                         }
                     });
                 });
@@ -345,9 +379,14 @@ impl MainPage {
 
             // Get task name for window title
             let window_title = if let Some(task) = self.executions.get(&task_id) {
-                format!("Task Errors - {}", task.execution.source_path.file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy())
+                format!(
+                    "Task Errors - {}",
+                    task.execution
+                        .source_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                )
             } else {
                 "Task Errors".to_string()
             };
@@ -362,12 +401,15 @@ impl MainPage {
                         ui.horizontal(|ui| {
                             ui.heading(format!("Error List ({} items)", errors.len()));
 
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("🗑️ Clear All Errors").clicked() {
-                                    self.error_messages.remove(&task_id);
-                                    self.viewing_errors_for_task = None;
-                                }
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("🗑️ Clear All Errors").clicked() {
+                                        self.error_messages.remove(&task_id);
+                                        self.viewing_errors_for_task = None;
+                                    }
+                                },
+                            );
                         });
 
                         ui.separator();
@@ -388,7 +430,7 @@ impl MainPage {
                                                 ui.label(format!("{}.", i + 1));
                                                 ui.colored_label(
                                                     egui::Color32::LIGHT_RED,
-                                                    format!("{}", error)
+                                                    format!("{}", error),
                                                 );
                                             });
                                         });
@@ -444,15 +486,23 @@ impl MainPage {
 
                     ui.label("Options:");
                     ui.checkbox(&mut self.new_task_follow_symlinks, "Follow Symlinks");
-                    ui.checkbox(&mut self.new_task_mirror, "Mirror Mode (Delete extra files in destination)");
+                    ui.checkbox(
+                        &mut self.new_task_mirror,
+                        "Mirror Mode (Delete extra files in destination)",
+                    );
                     ui.checkbox(&mut self.new_task_lock_source, "Lock Source Files");
-                    ui.checkbox(&mut self.new_task_backup_permission, "Backup File Permissions");
+                    ui.checkbox(
+                        &mut self.new_task_backup_permission,
+                        "Backup File Permissions",
+                    );
 
                     ui.separator();
 
                     ui.horizontal(|ui| {
                         if ui.button("Create Task").clicked() {
-                            if !self.new_task_source.is_empty() && !self.new_task_destination.is_empty() {
+                            if !self.new_task_source.is_empty()
+                                && !self.new_task_destination.is_empty()
+                            {
                                 let task = BackupExecution {
                                     uuid: Uuid::new_v4(),
                                     state: BackupState::Pending,
@@ -530,9 +580,6 @@ impl App for MainPage {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        info!("GUI is shutting down...");
-        //todo
+        log!(SystemLog::GuiExited)
     }
-
-    //todo Need add log viewer
 }

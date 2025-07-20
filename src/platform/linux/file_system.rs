@@ -239,7 +239,7 @@ impl FileSystem {
     fn system_time_to_timespec(system_time: SystemTime) -> Result<libc::timespec, Error> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|_| SystemError::InternalError)?;
+            .map_err(|_| SystemError::UnexpectError)?;
 
         Ok(libc::timespec {
             tv_sec: duration.as_secs() as libc::time_t,

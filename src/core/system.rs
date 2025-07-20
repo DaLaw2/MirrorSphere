@@ -1,4 +1,3 @@
-use std::mem;
 use crate::core::app_config::AppConfig;
 use crate::core::backup_engine::BackupEngine;
 use crate::core::database_manager::DatabaseManager;
@@ -9,6 +8,7 @@ use crate::core::progress_tracker::ProgressTracker;
 use crate::core::schedule_manager::ScheduleManager;
 use crate::interface::service_unit::ServiceUnit;
 use crate::model::error::Error;
+use crate::model::error::system::SystemError;
 use crate::model::log::system::SystemLog;
 #[cfg(not(debug_assertions))]
 use crate::platform::elevate::elevate;
@@ -17,11 +17,11 @@ use crate::utils::logging::Logging;
 use macros::log;
 #[cfg(not(debug_assertions))]
 use privilege::user::privileged;
+use std::mem;
 #[cfg(not(debug_assertions))]
 use std::process;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use crate::model::error::system::SystemError;
 
 pub struct System {
     pub event_bus: Arc<EventBus>,
@@ -52,7 +52,7 @@ impl System {
         let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
         let database_lock = DatabaseLock::acquire().await?;
         let database_manager = Arc::new(DatabaseManager::new().await?);
-        let gui_manager = Arc::new(GuiManager::new(event_bus.clone()));
+
         let schedule_manager = Arc::new(ScheduleManager::new(
             app_config.clone(),
             event_bus.clone(),
@@ -67,6 +67,11 @@ impl System {
             )
             .await,
         );
+        let gui_manager = Arc::new(GuiManager::new(
+            event_bus.clone(),
+            backup_engine.clone(),
+            schedule_manager.clone(),
+        ));
         log!(SystemLog::InitializeComplete);
         Ok(Self {
             event_bus,
@@ -82,7 +87,7 @@ impl System {
         })
     }
 
-    pub async fn run(&mut self) -> Result<(), Error>{
+    pub async fn run(&mut self) -> Result<(), Error> {
         let gui_manager = self.gui_manager.clone();
         let schedule_manager_shutdown = self.schedule_manager.clone().run().await;
         let backup_engine_shutdown = self.backup_engine.clone().run().await;
@@ -96,7 +101,7 @@ impl System {
         let shutdowns = mem::take(&mut self.shutdowns);
         for shutdown in shutdowns {
             if shutdown.send(()).is_err() {
-                //todo Add new error type, send signal failed
+                log!(SystemError::ShutdownSignalFailed);
             }
         }
         self.backup_engine.stop_all_executions().await;

@@ -16,5 +16,8 @@ loggable! {
 
         #[error("Termination completed")]
         TerminateComplete => tracing::Level::INFO,
+
+        #[error("Gui Exited")]
+        GuiExited => tracing::Level::INFO,
     }
 }

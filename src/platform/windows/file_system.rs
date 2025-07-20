@@ -247,7 +247,7 @@ impl FileSystem {
     fn system_time_to_file_time(system_time: SystemTime) -> Result<FILETIME, Error> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|err| SystemError::InternalError(err))?;
+            .map_err(|err| SystemError::UnexpectError(err))?;
 
         let epoch = DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
             .ok_or(SystemError::UnknownError)?;
@@ -267,7 +267,7 @@ impl FileSystem {
 
         unsafe {
             SystemTimeToFileTime(&sys_time, &mut file_time)
-                .map_err(|err| SystemError::InternalError(err))?;
+                .map_err(|err| SystemError::UnexpectError(err))?;
             Ok(file_time)
         }
     }

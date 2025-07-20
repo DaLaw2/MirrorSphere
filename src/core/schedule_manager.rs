@@ -1,10 +1,12 @@
 use crate::core::app_config::AppConfig;
 use crate::core::database_manager::DatabaseManager;
 use crate::core::event_bus::EventBus;
+use crate::interface::repository::schedule::ScheduleRepository;
 use crate::interface::service_unit::ServiceUnit;
 use crate::model::backup::backup_schedule::*;
 use crate::model::error::Error;
 use crate::model::error::system::SystemError;
+use crate::model::error::task::TaskError;
 use crate::model::event::execution::*;
 use crate::model::event::schedule::*;
 use crate::model::log::system::SystemLog;
@@ -17,7 +19,6 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::error;
 use uuid::Uuid;
-use crate::interface::repository::schedule::ScheduleRepository;
 
 pub struct ScheduleManager {
     config: Arc<AppConfig>,
@@ -47,11 +48,15 @@ impl ScheduleManager {
     }
 
     pub async fn create_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
-        self.database_manager.create_backup_schedule(&schedule).await
+        self.database_manager
+            .create_backup_schedule(&schedule)
+            .await
     }
 
     pub async fn modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
-        self.database_manager.modify_backup_schedule(&schedule).await
+        self.database_manager
+            .modify_backup_schedule(&schedule)
+            .await
     }
 
     pub async fn remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
@@ -179,7 +184,7 @@ impl ScheduleTimer {
                     _ = sleep(sleep_time.to_std().unwrap()) => {}
                 }
             },
-            None => log!(SystemError::IllegalRunState),
+            None => log!(TaskError::IllegalRunState),
         }
     }
 
@@ -245,7 +250,9 @@ impl ServiceUnit for ScheduleManager {
             if shutdown_rx.try_recv().is_ok() {
                 log!(SystemLog::Terminating);
                 if timer_shutdown_tx.send(()).is_err() {
-                    log!(SystemError::TerminateError("Fail send shutdown signal to timer"))
+                    log!(SystemError::TerminateError(
+                        "Fail send shutdown signal to timer"
+                    ))
                 } else {
                     log!(SystemLog::TerminateComplete);
                 }

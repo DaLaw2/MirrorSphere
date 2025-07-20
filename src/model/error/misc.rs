@@ -5,15 +5,6 @@ traceable! {
         #[error("Failed to free object")]
         ObjectFreeFailed => tracing::Level::ERROR,
 
-        #[error("Unexpected error type")]
-        UnexpectedErrorType => tracing::Level::ERROR,
-
-        #[error("Failed to encode bincode")]
-        BincodeEncodeError => tracing::Level::ERROR,
-
-        #[error("Failed to decode bincode")]
-        BincodeDecodeError => tracing::Level::ERROR,
-        
         #[error("Failed to serialize object")]
         SerializeError => tracing::Level::ERROR,
         

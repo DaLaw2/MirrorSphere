@@ -1,21 +1,15 @@
 use crate::core::io_manager::IOManager;
 use crate::interface::file_system::FileSystemTrait;
+use crate::model::backup::progress_data::ProgressData;
+use crate::model::error::Error;
 use crate::model::error::io::IOError;
 use crate::model::error::misc::MiscError;
-use crate::model::error::Error;
 use crate::platform::constants::PROGRESS_SAVE_PATH;
 use memmap2::MmapMut;
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::fs::OpenOptions;
 use uuid::Uuid;
-
-#[derive(Serialize, Deserialize, Debug)]
-struct ProgressData {
-    current_level: Vec<PathBuf>,
-    errors: Vec<Error>,
-}
 
 pub struct ProgressTracker {
     io_manager: Arc<IOManager>,
@@ -32,12 +26,10 @@ impl ProgressTracker {
         current_level: Vec<PathBuf>,
         errors: Vec<Error>,
     ) -> Result<(), Error> {
-        let progress_data = ProgressData {
-            current_level,
-            errors,
-        };
+        let progress_data = ProgressData::new(current_level, errors);
 
-        self.write_progress_file(execution_uuid, &progress_data).await
+        self.write_progress_file(execution_uuid, &progress_data)
+            .await
     }
 
     pub async fn resume_execution(&self, execution_uuid: Uuid) -> (Vec<PathBuf>, Vec<Error>) {
@@ -47,7 +39,11 @@ impl ProgressTracker {
         }
     }
 
-    async fn write_progress_file(&self, execution_uuid: Uuid, data: &ProgressData) -> Result<(), Error> {
+    async fn write_progress_file(
+        &self,
+        execution_uuid: Uuid,
+        data: &ProgressData,
+    ) -> Result<(), Error> {
         let saved_path = PathBuf::from(PROGRESS_SAVE_PATH).join(execution_uuid.to_string());
 
         if let Some(parent) = saved_path.parent() {
@@ -58,7 +54,7 @@ impl ProgressTracker {
 
         let config = bincode::config::standard();
         let serialized = bincode::serde::encode_to_vec(data, config)
-            .map_err(|err| MiscError::BincodeDecodeError(err))?;
+            .map_err(|err| MiscError::DeserializeError(err))?;
         let data_len = serialized.len();
 
         let file = OpenOptions::new()
@@ -74,7 +70,8 @@ impl ProgressTracker {
             .map_err(|err| IOError::WriteFileFailed(saved_path.clone(), err))?;
 
         let mut mmap = unsafe {
-            MmapMut::map_mut(&file).map_err(|err| IOError::WriteFileFailed(saved_path.clone(), err))?
+            MmapMut::map_mut(&file)
+                .map_err(|err| IOError::WriteFileFailed(saved_path.clone(), err))?
         };
         mmap[..data_len].copy_from_slice(&serialized);
         mmap.flush()
@@ -92,10 +89,9 @@ impl ProgressTracker {
             })?
         }
 
-        let file =
-            tokio::fs::File::open(&saved_path)
-                .await
-                .map_err(|err| IOError::ReadFileFailed(saved_path.clone(), err))?;
+        let file = tokio::fs::File::open(&saved_path)
+            .await
+            .map_err(|err| IOError::ReadFileFailed(saved_path.clone(), err))?;
 
         let mmap = unsafe {
             MmapMut::map_mut(&file).map_err(|err| IOError::ReadFileFailed(saved_path, err))?
@@ -103,7 +99,7 @@ impl ProgressTracker {
 
         let config = bincode::config::standard();
         let (progress_data, _) = bincode::serde::decode_from_slice(&mmap, config)
-            .map_err(|err| MiscError::BincodeDecodeError(err))?;
+            .map_err(|err| MiscError::DeserializeError(err))?;
 
         Ok(progress_data)
     }

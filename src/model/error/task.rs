@@ -3,8 +3,8 @@ use macros::traceable;
 traceable! {
     TaskError {
         #[no_source]
-        #[error("Illegal task state")]
-        IllegalExecutionState => tracing::Level::ERROR,
+        #[error("Illegal run state")]
+        IllegalRunState => tracing::Level::ERROR,
 
         #[no_source]
         #[error("Task not found")]
@@ -12,7 +12,5 @@ traceable! {
 
         #[error("Failed to stop task")]
         StopExecutionFailed => tracing::Level::ERROR,
-
-
     }
 }

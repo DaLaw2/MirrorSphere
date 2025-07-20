@@ -14,12 +14,13 @@ traceable! {
 
         #[error("Configuration not found")]
         ConfigNotFound => tracing::Level::ERROR,
-        
+
         #[error("Failed to terminate instance")]
         TerminateError => tracing::Level::ERROR,
 
-        #[error("Internal error")]
-        InternalError => tracing::Level::ERROR,
+        #[no_source]
+        #[error("Failed to send shutdown signal")]
+        ShutdownSignalFailed => tracing::Level::ERROR,
 
         #[error("Unexcepted thread panic")]
         ThreadPanic => tracing::Level::ERROR,
@@ -30,9 +31,5 @@ traceable! {
         #[no_source]
         #[error("Unknown error")]
         UnknownError => tracing::Level::ERROR,
-
-        #[no_source]
-        #[error("Task already running")]
-        IllegalRunState => tracing::Level::ERROR,
     }
 }

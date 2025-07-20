@@ -20,6 +20,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::sync::oneshot::Receiver;
 use tokio::task::JoinHandle;
+use tracing::error;
 use uuid::Uuid;
 
 pub struct BackupEngine {
@@ -57,9 +58,7 @@ impl BackupEngine {
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_executions.remove(&uuid) {
                 if shutdown.send(()).is_err() {
-                    log!(TaskError::StopExecutionFailed(
-                        "Fail send shutdown signal to task"
-                    ));
+                    log!(SystemError::ShutdownSignalFailed);
                     continue;
                 }
                 if let Err(err) = handle.await {
@@ -79,7 +78,7 @@ impl BackupEngine {
 
     pub async fn start_execution(&self, uuid: Uuid) -> Result<(), Error> {
         if self.running_executions.contains_key(&uuid) {
-            Err(TaskError::IllegalExecutionState)?
+            Err(TaskError::IllegalRunState)?
         }
 
         let mut ref_mut = self
@@ -88,7 +87,7 @@ impl BackupEngine {
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Pending {
-            Err(TaskError::IllegalExecutionState)?
+            Err(TaskError::IllegalRunState)?
         }
         execution.state = BackupState::Running;
 
@@ -107,7 +106,7 @@ impl BackupEngine {
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Running {
-            Err(TaskError::IllegalExecutionState)?
+            Err(TaskError::IllegalRunState)?
         }
         execution.state = BackupState::Suspended;
         drop(ref_mut);
@@ -118,14 +117,14 @@ impl BackupEngine {
             .ok_or(TaskError::ExecutionNotFound)?;
         shutdown
             .send(())
-            .map_err(|_| TaskError::StopExecutionFailed("Fail send shutdown signal to execution"))?;
+            .map_err(|_| SystemError::ShutdownSignalFailed)?;
         handle.await.map_err(|err| SystemError::ThreadPanic(err))?;
         Ok(())
     }
 
     pub async fn resume_execution(&self, uuid: Uuid) -> Result<(), Error> {
         if self.running_executions.contains_key(&uuid) {
-            Err(TaskError::IllegalExecutionState)?
+            Err(TaskError::IllegalRunState)?
         }
 
         let mut ref_mut = self
@@ -134,7 +133,7 @@ impl BackupEngine {
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Suspended {
-            Err(TaskError::IllegalExecutionState)?
+            Err(TaskError::IllegalRunState)?
         }
         execution.state = BackupState::Running;
 
@@ -230,7 +229,7 @@ impl ExecutionRunner {
                     shutdown_flag = true;
                     for shutdown in worker_shutdowns {
                         if shutdown.send(()).is_err() {
-                            log!(TaskError::StopExecutionFailed("Fail send shutdown signal to task"));
+                            log!(SystemError::ShutdownSignalFailed);
                         }
                     }
                     join_all(&mut worker_handles).await
@@ -250,10 +249,11 @@ impl ExecutionRunner {
 
             if shutdown_flag {
                 current_level.extend(next_level);
-                let _ = progress_tracker
+                if let Err(err) = progress_tracker
                     .save_execution(execution.uuid, current_level, errors)
-                    .await;
-                unimplemented!("Need handle error");
+                    .await {
+                    error!("{}", err);
+                }
                 break;
             } else {
                 current_level = next_level;
@@ -644,7 +644,7 @@ impl Worker {
     ) -> Result<PathBuf, Error> {
         let relative_path = source_path
             .strip_prefix(source_root)
-            .map_err(|_| SystemError::UnknownError)?;
+            .map_err(|err| SystemError::UnexpectError(err))?;
         Ok(destination_root.join(relative_path))
     }
 }
@@ -671,16 +671,19 @@ impl ServiceUnit for BackupEngine {
                 backup_engine.remove_execution(&event.execution_id).await;
             }
             while let Ok(event) = start_execution.try_recv() {
-                //todo Need add error handle
-                let _ = backup_engine.start_execution(event.execution_id).await;
+                if let Err(err) = backup_engine.start_execution(event.execution_id).await {
+                    error!(err);
+                }
             }
             while let Ok(event) = resume_execution.try_recv() {
-                //todo Need add error handle
-                let _ = backup_engine.resume_execution(event.execution_id).await;
+                if let Err(err) = backup_engine.resume_execution(event.execution_id).await {
+                    error!(err);
+                }
             }
             while let Ok(event) = suspend_execution.try_recv() {
-                //todo Need add error handle
-                let _ = backup_engine.suspend_execution(event.execution_id).await;
+                if let Err(err) = backup_engine.suspend_execution(event.execution_id).await {
+                    error!(err);
+                }
             }
         }
     }
