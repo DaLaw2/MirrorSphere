@@ -41,23 +41,6 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> Result<(), Error> {
-        let semaphore = self.semaphore();
-        let _permit = semaphore
-            .acquire_owned()
-            .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
-
-        if link_path.is_dir() {
-            tokio::fs::symlink_dir(target, link_path).await
-        } else {
-            tokio::fs::symlink_file(target, link_path).await
-        }
-        .map_err(|err| IOError::CreateSymbolLinkFailed(target.clone(), link_path.clone(), err))?;
-
-        Ok(())
-    }
-
     async fn copy_symlink(
         &self,
         source_link: &PathBuf,
@@ -67,7 +50,7 @@ impl FileSystemTrait for FileSystem {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let link_target =
             tokio::fs::read_link(source_link)
@@ -89,7 +72,7 @@ impl FileSystemTrait for FileSystem {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let metadata = tokio::fs::metadata(path)
             .await
@@ -122,7 +105,7 @@ impl FileSystemTrait for FileSystem {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
@@ -158,14 +141,14 @@ impl FileSystemTrait for FileSystem {
                 Some(&change_filetime),
             );
 
-            CloseHandle(handle).map_err(|err| MiscError::ObjectFreeFailed(err))?;
+            CloseHandle(handle).map_err(MiscError::ObjectFreeFailed)?;
 
             result.map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
 
             Ok::<(), Error>(())
         })
         .await
-        .map_err(|err| SystemError::ThreadPanic(err))??;
+        .map_err(SystemError::ThreadPanic)??;
 
         Ok(())
     }
@@ -194,7 +177,7 @@ impl FileSystemTrait for FileSystem {
             );
 
             if result.is_err() {
-                Err(IOError::GetMetadataFailed(path.clone(), format!("{:?}", result)))?;
+                Err(IOError::GetMetadataFailed(path.clone(), format!("{result:?}")))?;
             }
 
             Ok::<Permissions, Error>(Permissions {
@@ -206,7 +189,7 @@ impl FileSystemTrait for FileSystem {
             })
         })
         .await
-        .map_err(|err| SystemError::ThreadPanic(err))??;
+        .map_err(SystemError::ThreadPanic)??;
 
         Ok(permission)
     }
@@ -233,7 +216,7 @@ impl FileSystemTrait for FileSystem {
             );
 
             if result.is_err() {
-                Err(IOError::SetMetadataFailed(path.clone(), format!("{:?}", result)))?;
+                Err(IOError::SetMetadataFailed(path.clone(), format!("{result:?}")))?;
             }
         }
 
@@ -247,7 +230,7 @@ impl FileSystem {
     fn system_time_to_file_time(system_time: SystemTime) -> Result<FILETIME, Error> {
         let duration = system_time
             .duration_since(SystemTime::UNIX_EPOCH)
-            .map_err(|err| SystemError::UnexpectError(err))?;
+            .map_err(SystemError::UnexpectError)?;
 
         let epoch = DateTime::from_timestamp(duration.as_secs() as i64, duration.subsec_nanos())
             .ok_or(SystemError::UnknownError)?;
@@ -260,14 +243,14 @@ impl FileSystem {
             wHour: epoch.hour() as u16,
             wMinute: epoch.minute() as u16,
             wSecond: epoch.second() as u16,
-            wMilliseconds: (duration.subsec_nanos() / 1_000_000) as u16,
+            wMilliseconds: duration.subsec_millis() as u16,
         };
 
         let mut file_time = FILETIME::default();
 
         unsafe {
             SystemTimeToFileTime(&sys_time, &mut file_time)
-                .map_err(|err| SystemError::UnexpectError(err))?;
+                .map_err(SystemError::UnexpectError)?;
             Ok(file_time)
         }
     }

@@ -22,7 +22,7 @@ impl DatabaseManager {
         }
         let pool = SqlitePool::connect(DATABASE_URL)
             .await
-            .map_err(|err| DatabaseError::DatabaseConnectFailed(err))?;
+            .map_err(DatabaseError::DatabaseConnectFailed)?;
         log!(DatabaseLog::DatabaseConnectSuccess);
         let database_manager = Self { pool };
         if !database_manager.exist_table("BackupSchedules").await {
@@ -48,7 +48,7 @@ impl DatabaseManager {
     pub async fn create_database() -> Result<(), Error> {
         let _ = File::create(DATABASE_PATH)
             .await
-            .map_err(|err| DatabaseError::CreateDatabaseFailed(err))?;
+            .map_err(DatabaseError::CreateDatabaseFailed)?;
         Ok(())
     }
 

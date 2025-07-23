@@ -24,15 +24,15 @@ pub struct MainPage {
 
 impl MainPage {
     pub fn new(
-        config: Arc<AppConfig>,
+        app_config: Arc<AppConfig>,
         event_bus: Arc<EventBus>,
         backup_engine: Arc<BackupEngine>,
         schedule_manager: Arc<ScheduleManager>,
     ) -> Self {
         Self {
             current_page: PageType::Executions,
-            execution_page: ExecutionPage::new(config.clone(), event_bus, backup_engine),
-            schedule_page: SchedulePage::new(config, schedule_manager),
+            execution_page: ExecutionPage::new(app_config.clone(), event_bus, backup_engine),
+            schedule_page: SchedulePage::new(app_config, schedule_manager),
         }
     }
 

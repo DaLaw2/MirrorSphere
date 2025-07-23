@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::core::app_config::AppConfig;
 
 pub struct GuiManager {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     event_bus: Arc<EventBus>,
     backup_engine: Arc<BackupEngine>,
     schedule_manager: Arc<ScheduleManager>,
@@ -17,13 +17,13 @@ pub struct GuiManager {
 
 impl GuiManager {
     pub fn new(
-        config: Arc<AppConfig>,
+        app_config: Arc<AppConfig>,
         event_bus: Arc<EventBus>,
         backup_engine: Arc<BackupEngine>,
         schedule_manager: Arc<ScheduleManager>,
     ) -> Self {
         Self {
-            config,
+            app_config,
             event_bus,
             backup_engine,
             schedule_manager,
@@ -31,7 +31,7 @@ impl GuiManager {
     }
 
     pub fn start(&self) -> Result<(), Error> {
-        let config = self.config.clone();
+        let config = self.app_config.clone();
         let event_bus = self.event_bus.clone();
         let backup_engine = self.backup_engine.clone();
         let schedule_manager = self.schedule_manager.clone();
@@ -55,7 +55,7 @@ impl GuiManager {
                 )))
             }),
         )
-        .map_err(|err| MiscError::UIPlatformError(err))?;
+        .map_err(MiscError::UIPlatformError)?;
 
         Ok(())
     }

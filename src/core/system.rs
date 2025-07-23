@@ -10,8 +10,7 @@ use crate::interface::service_unit::ServiceUnit;
 use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::log::system::SystemLog;
-#[cfg(not(debug_assertions))]
-use crate::platform::elevate::elevate;
+use crate::platform::elevate;
 use crate::utils::database_lock::DatabaseLock;
 use crate::utils::logging::Logging;
 use macros::log;
@@ -24,15 +23,12 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 pub struct System {
-    pub event_bus: Arc<EventBus>,
-    pub app_config: Arc<AppConfig>,
     pub io_manager: Arc<IOManager>,
-    pub progress_tracker: Arc<ProgressTracker>,
-    pub database_lock: DatabaseLock,
     pub database_manager: Arc<DatabaseManager>,
-    pub gui_manager: Arc<GuiManager>,
-    pub schedule_manager: Arc<ScheduleManager>,
     pub backup_engine: Arc<BackupEngine>,
+    pub schedule_manager: Arc<ScheduleManager>,
+    pub gui_manager: Arc<GuiManager>,
+    pub _database_lock: DatabaseLock,
     pub shutdowns: Vec<oneshot::Sender<()>>,
 }
 
@@ -40,33 +36,24 @@ impl System {
     pub async fn new() -> Result<Self, Error> {
         Logging::initialize().await;
         log!(SystemLog::Initializing);
-        #[cfg(not(debug_assertions))]
-        if !privileged() {
-            log!(SystemLog::ReRunAsAdmin);
-            elevate()?;
-            process::exit(0);
-        }
+        Self::elevate_privileges()?;
         let app_config = Arc::new(AppConfig::new()?);
         let event_bus = Arc::new(EventBus::new());
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
-        let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
-        let database_lock = DatabaseLock::acquire().await?;
+        let _database_lock = DatabaseLock::acquire().await?;
         let database_manager = Arc::new(DatabaseManager::new().await?);
-
+        let progress_tracker = Arc::new(ProgressTracker::new(io_manager.clone()));
+        let backup_engine = Arc::new(BackupEngine::new(
+            app_config.clone(),
+            event_bus.clone(),
+            io_manager.clone(),
+            progress_tracker.clone(),
+        ));
         let schedule_manager = Arc::new(ScheduleManager::new(
             app_config.clone(),
             event_bus.clone(),
             database_manager.clone(),
         ));
-        let backup_engine = Arc::new(
-            BackupEngine::new(
-                app_config.clone(),
-                event_bus.clone(),
-                io_manager.clone(),
-                progress_tracker.clone(),
-            )
-            .await,
-        );
         let gui_manager = Arc::new(GuiManager::new(
             app_config.clone(),
             event_bus.clone(),
@@ -75,25 +62,22 @@ impl System {
         ));
         log!(SystemLog::InitializeComplete);
         Ok(Self {
-            event_bus,
-            app_config,
             io_manager,
-            progress_tracker,
-            database_lock,
             database_manager,
-            gui_manager,
-            schedule_manager,
             backup_engine,
+            schedule_manager,
+            gui_manager,
+            _database_lock,
             shutdowns: Vec::new(),
         })
     }
 
     pub async fn run(&mut self) -> Result<(), Error> {
         let gui_manager = self.gui_manager.clone();
-        let schedule_manager_shutdown = self.schedule_manager.clone().run().await;
         let backup_engine_shutdown = self.backup_engine.clone().run().await;
-        self.shutdowns.push(schedule_manager_shutdown);
+        let schedule_manager_shutdown = self.schedule_manager.clone().run().await;
         self.shutdowns.push(backup_engine_shutdown);
+        self.shutdowns.push(schedule_manager_shutdown);
         gui_manager.start()
     }
 
@@ -109,5 +93,16 @@ impl System {
         self.database_manager.close_connection().await;
         self.io_manager.terminate();
         log!(SystemLog::TerminateComplete);
+    }
+
+    fn elevate_privileges() -> Result<(), Error> {
+        #[cfg(not(debug_assertions))]
+        if !privileged() {
+            log!(SystemLog::ReRunAsAdmin);
+            elevate::elevate()?;
+            process::exit(0);
+        }
+        #[cfg(target_os = "windows")]
+        elevate::adjust_token_privileges()
     }
 }

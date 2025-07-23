@@ -23,7 +23,7 @@ use tracing::error;
 use uuid::Uuid;
 
 pub struct BackupEngine {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
@@ -32,14 +32,14 @@ pub struct BackupEngine {
 }
 
 impl BackupEngine {
-    pub async fn new(
-        config: Arc<AppConfig>,
+    pub fn new(
+        app_config: Arc<AppConfig>,
         event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
-            config,
+            app_config,
             event_bus,
             io_manager,
             progress_tracker,
@@ -117,7 +117,7 @@ impl BackupEngine {
         shutdown
             .send(())
             .map_err(|_| SystemError::ShutdownSignalFailed)?;
-        handle.await.map_err(|err| SystemError::ThreadPanic(err))?;
+        handle.await.map_err(SystemError::ThreadPanic)?;
         Ok(())
     }
 
@@ -145,7 +145,7 @@ impl BackupEngine {
     }
 
     fn to_execution_runner(&self) -> ExecutionRunner {
-        let config = self.config.clone();
+        let config = self.app_config.clone();
         let io_manager = self.io_manager.clone();
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
@@ -161,7 +161,7 @@ impl BackupEngine {
 }
 
 struct ExecutionRunner {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
@@ -170,14 +170,14 @@ struct ExecutionRunner {
 
 impl ExecutionRunner {
     pub fn new(
-        config: Arc<AppConfig>,
+        app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
         executions: Arc<DashMap<Uuid, BackupExecution>>,
         running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
     ) -> Self {
         Self {
-            config,
+            app_config,
             io_manager,
             progress_tracker,
             executions,
@@ -191,7 +191,7 @@ impl ExecutionRunner {
         mut shutdown: oneshot::Receiver<()>,
         resume: bool,
     ) {
-        let config = &self.config;
+        let config = &self.app_config;
         let progress_tracker = &self.progress_tracker;
 
         let (mut current_level, mut errors) = if resume {
@@ -275,29 +275,19 @@ impl ExecutionRunner {
     }
 
     fn to_worker(&self) -> Worker {
-        let config = self.config.clone();
         let io_manager = self.io_manager.clone();
-        let progress_tracker = self.progress_tracker.clone();
-        Worker::new(config, io_manager, progress_tracker)
+        Worker::new(io_manager)
     }
 }
 
 struct Worker {
-    config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
-    progress_tracker: Arc<ProgressTracker>,
 }
 
 impl Worker {
-    pub fn new(
-        config: Arc<AppConfig>,
-        io_manager: Arc<IOManager>,
-        progress_tracker: Arc<ProgressTracker>,
-    ) -> Self {
+    pub fn new(io_manager: Arc<IOManager>) -> Self {
         Self {
-            config,
-            io_manager,
-            progress_tracker,
+            io_manager
         }
     }
 
@@ -623,10 +613,8 @@ impl Worker {
                         if let Err(e) = io_manager.delete_directory(&dest_entry).await {
                             errors.push(e);
                         }
-                    } else {
-                        if let Err(e) = io_manager.delete_file(&dest_entry).await {
-                            errors.push(e);
-                        }
+                    } else if let Err(e) = io_manager.delete_file(&dest_entry).await {
+                        errors.push(e);
                     }
                 }
             }
@@ -643,7 +631,7 @@ impl Worker {
     ) -> Result<PathBuf, Error> {
         let relative_path = source_path
             .strip_prefix(source_root)
-            .map_err(|err| SystemError::UnexpectError(err))?;
+            .map_err(SystemError::UnexpectError)?;
         Ok(destination_root.join(relative_path))
     }
 }
