@@ -171,15 +171,14 @@ impl FileSystemTrait for FileSystem {
 
         spawn_blocking(move || {
             let path = path_clone;
-            let c_path = CString::new(path.to_string_lossy().as_bytes())
-                .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
+            let c_path: CString = CString::new(path.to_string_lossy().as_bytes())
+                .map_err(|err| Error::IO(IOError::SetMetadataFailed(path.clone(), err)))?;
 
             unsafe {
                 if libc::chown(c_path.as_ptr(), permissions.uid, permissions.gid) != 0 {
-                    return Err(IOError::SetMetadataFailed(
-                        path.clone(),
-                        "libc chown failed",
-                    ));
+                    return Err(
+                        IOError::SetMetadataFailed(path.clone(), "libc chmod failed").into(),
+                    );
                 }
 
                 let mut mode = permissions.mode & 0o7777;
@@ -194,10 +193,9 @@ impl FileSystemTrait for FileSystem {
                 }
 
                 if libc::chmod(c_path.as_ptr(), mode as mode_t) != 0 {
-                    return Err(IOError::SetMetadataFailed(
-                        path.clone(),
-                        "libc chmod failed",
-                    ));
+                    return Err(
+                        IOError::SetMetadataFailed(path.clone(), "libc chmod failed").into(),
+                    );
                 }
             }
 
@@ -222,7 +220,10 @@ impl FileSystem {
 
         unsafe {
             if libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) != 0 {
-                return Err(IOError::SetMetadataFailed.into());
+                Err(IOError::SetMetadataFailed(
+                    path.clone(),
+                    "libc utimensat failed",
+                ))?;
             }
         }
 

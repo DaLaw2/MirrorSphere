@@ -10,6 +10,8 @@ use crate::interface::service_unit::ServiceUnit;
 use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::log::system::SystemLog;
+#[cfg(target_os = "linux")]
+#[cfg(not(debug_assertions))]
 use crate::platform::elevate;
 use crate::utils::database_lock::DatabaseLock;
 use crate::utils::logging::Logging;
@@ -103,6 +105,7 @@ impl System {
             process::exit(0);
         }
         #[cfg(target_os = "windows")]
-        elevate::adjust_token_privileges()
+        elevate::adjust_token_privileges()?;
+        Ok(())
     }
 }
