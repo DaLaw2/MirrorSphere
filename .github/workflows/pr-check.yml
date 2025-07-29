@@ -8,23 +8,29 @@ on:
 jobs:
   build-and-check:
     runs-on: self-hosted
+    container:
+      image: ubuntu:24.04
+      options: --userns=keep-id
 
     steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential mingw-w64 git
+
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy
+          source ~/.cargo/env
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
 
       - name: Add Windows target
-        run: rustup target add x86_64-pc-windows-gnu
-
-      - name: Install MinGW
         run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64
+          source ~/.cargo/env
+          rustup target add x86_64-pc-windows-gnu
 
       - name: Configure Cargo for cross-compilation
         run: |
@@ -36,13 +42,19 @@ jobs:
           EOF
 
       - name: Run Clippy
-        run: cargo clippy
+        run: |
+          source ~/.cargo/env
+          cargo clippy
 
       - name: Build Linux (debug)
-        run: cargo build --verbose
+        run: |
+          source ~/.cargo/env
+          cargo build --verbose
 
       - name: Build Windows (debug)
-        run: cargo build --target x86_64-pc-windows-gnu --verbose
+        run: |
+          source ~/.cargo/env
+          cargo build --target x86_64-pc-windows-gnu --verbose
 
       - name: Upload Linux binary
         uses: actions/upload-artifact@v4
