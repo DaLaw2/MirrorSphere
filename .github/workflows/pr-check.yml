@@ -3,6 +3,7 @@ name: PR Check
 on:
   pull_request:
     branches: [ master ]
+  workflow_dispatch:
 
 jobs:
   build-and-check:
