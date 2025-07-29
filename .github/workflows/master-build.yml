@@ -1,0 +1,61 @@
+name: Master Build
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm base-devel git curl mingw-w64-gcc mingw-w64-tools mingw-w64-winpthreads
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy
+          source ~/.cargo/env
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Add Windows target
+        run: rustup target add x86_64-pc-windows-gnu
+
+      - name: Configure Cargo for cross-compilation
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << EOF
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          ar = "x86_64-w64-mingw32-ar"
+          EOF
+
+      - name: Run Clippy
+        run: cargo clippy
+
+      - name: Build Linux (release)
+        run: cargo build --release --verbose
+
+      - name: Build Windows (release)
+        run: cargo build --target x86_64-pc-windows-gnu --release --verbose
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-linux-release
+          path: target/release/MirrorSphere
+          retention-days: 90
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-windows-release
+          path: target/x86_64-pc-windows-gnu/release/MirrorSphere.exe
+          retention-days: 90
