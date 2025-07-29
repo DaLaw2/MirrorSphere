@@ -1,5 +1,6 @@
 [Config]
 internal_timestamp = 20
+ui_refresh_time = 2
 default_wakeup_time = 10
 max_concurrency = 16
 max_file_operations = 100

@@ -26,12 +26,13 @@ impl EventBus {
 
         self.channels
             .entry(type_id)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(handler);
 
         rx
     }
 
+    #[allow(dead_code)]
     pub fn publish<E: Event>(&self, event: E) {
         let type_id = TypeId::of::<E>();
         if let Some(handlers) = self.channels.get(&type_id) {

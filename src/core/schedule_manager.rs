@@ -21,26 +21,22 @@ use tracing::error;
 use uuid::Uuid;
 
 pub struct ScheduleManager {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     event_bus: Arc<EventBus>,
     database_manager: Arc<DatabaseManager>,
 }
 
 impl ScheduleManager {
     pub fn new(
-        config: Arc<AppConfig>,
+        app_config: Arc<AppConfig>,
         event_bus: Arc<EventBus>,
         database_manager: Arc<DatabaseManager>,
     ) -> Self {
         ScheduleManager {
-            config,
+            app_config,
             event_bus,
             database_manager,
         }
-    }
-
-    pub async fn get_schedule(&self, uuid: Uuid) -> Result<Option<BackupSchedule>, Error> {
-        self.database_manager.get_backup_schedule(uuid).await
     }
 
     pub async fn get_all_schedules(&self) -> Result<Vec<BackupSchedule>, Error> {
@@ -139,8 +135,7 @@ impl ScheduleManager {
 }
 
 struct ScheduleTimer {
-    config: Arc<AppConfig>,
-    event_bus: Arc<EventBus>,
+    app_config: Arc<AppConfig>,
     schedule_manager: Arc<ScheduleManager>,
     shutdown_rx: Option<oneshot::Receiver<()>>,
     refresh_rx: mpsc::UnboundedReceiver<()>,
@@ -148,15 +143,13 @@ struct ScheduleTimer {
 
 impl ScheduleTimer {
     pub fn new(
-        config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
+        app_config: Arc<AppConfig>,
         schedule_manager: Arc<ScheduleManager>,
         shutdown_rx: oneshot::Receiver<()>,
         refresh_rx: mpsc::UnboundedReceiver<()>,
     ) -> Self {
         ScheduleTimer {
-            config,
-            event_bus,
+            app_config,
             schedule_manager,
             shutdown_rx: Some(shutdown_rx),
             refresh_rx,
@@ -164,14 +157,15 @@ impl ScheduleTimer {
     }
 
     pub async fn run(mut self) {
+        let schedule_manager = self.schedule_manager.clone();
         match self.shutdown_rx.take() {
             Some(mut shutdown_rx) => loop {
                 let mut sleep_time = match self.calculate_sleep_duration().await {
                     Ok(Some(duration)) => duration,
-                    Ok(None) => Duration::seconds(self.config.default_wakeup_time),
+                    Ok(None) => Duration::seconds(self.app_config.default_wakeup_time),
                     Err(err) => {
                         error!("{}", err);
-                        Duration::seconds(self.config.default_wakeup_time)
+                        Duration::seconds(self.app_config.default_wakeup_time)
                     }
                 };
                 if sleep_time < Duration::seconds(0) {
@@ -182,6 +176,9 @@ impl ScheduleTimer {
                     _ = &mut shutdown_rx => { break; }
                     _ = self.refresh_rx.recv() => {}
                     _ = sleep(sleep_time.to_std().unwrap()) => {}
+                }
+                if let Err(err) = schedule_manager.execute_ready_schedule().await {
+                    error!("{}", err);
                 }
             },
             None => log!(TaskError::IllegalRunState),
@@ -225,8 +222,7 @@ impl ServiceUnit for ScheduleManager {
         let (timer_refresh_tx, timer_refresh_rx) = mpsc::unbounded_channel();
 
         let schedule_timer = ScheduleTimer::new(
-            self.config.clone(),
-            self.event_bus.clone(),
+            self.app_config.clone(),
             self.clone(),
             timer_shutdown_rx,
             timer_refresh_rx,
@@ -242,7 +238,7 @@ impl ServiceUnit for ScheduleManager {
         let active_schedule = event_bus.subscribe::<ScheduleActiveRequest>();
         let pause_schedule = event_bus.subscribe::<SchedulePauseRequest>();
         let disable_schedule = event_bus.subscribe::<ScheduleDisableRequest>();
-        let sleep_duration = Duration::milliseconds(self.config.internal_timestamp)
+        let sleep_duration = Duration::milliseconds(self.app_config.internal_timestamp)
             .to_std()
             .unwrap();
 

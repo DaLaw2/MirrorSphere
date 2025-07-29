@@ -10,10 +10,6 @@ impl SecurityDescriptorGuard {
     pub fn new(descriptor: PSECURITY_DESCRIPTOR) -> Self {
         Self { descriptor }
     }
-
-    pub fn get(&self) -> PSECURITY_DESCRIPTOR {
-        self.descriptor
-    }
 }
 
 impl Deref for SecurityDescriptorGuard {

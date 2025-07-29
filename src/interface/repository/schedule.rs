@@ -39,7 +39,7 @@ impl ScheduleRepository for DatabaseManager {
         )
             .execute(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
@@ -69,25 +69,25 @@ impl ScheduleRepository for DatabaseManager {
             .bind(&backup_schedule.name)
             .bind(
                 serde_json::to_string(&backup_schedule.state)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(backup_schedule.source_path.to_string_lossy().to_string())
             .bind(backup_schedule.destination_path.to_string_lossy().to_string())
             .bind(
                 serde_json::to_string(&backup_schedule.backup_type)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.comparison_mode)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.options)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.interval)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(backup_schedule.last_run_time)
             .bind(backup_schedule.next_run_time)
@@ -95,7 +95,7 @@ impl ScheduleRepository for DatabaseManager {
             .bind(backup_schedule.updated_at)
             .execute(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
@@ -124,25 +124,25 @@ impl ScheduleRepository for DatabaseManager {
             .bind(&backup_schedule.name)
             .bind(
                 serde_json::to_string(&backup_schedule.state)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(backup_schedule.source_path.to_string_lossy().to_string())
             .bind(backup_schedule.destination_path.to_string_lossy().to_string())
             .bind(
                 serde_json::to_string(&backup_schedule.backup_type)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.comparison_mode)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.options)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(
                 serde_json::to_string(&backup_schedule.interval)
-                    .map_err(|err| MiscError::SerializeError(err))?,
+                    .map_err(MiscError::SerializeError)?,
             )
             .bind(backup_schedule.last_run_time)
             .bind(backup_schedule.next_run_time)
@@ -150,7 +150,7 @@ impl ScheduleRepository for DatabaseManager {
             .bind(backup_schedule.updated_at)
             .execute(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
@@ -160,7 +160,7 @@ impl ScheduleRepository for DatabaseManager {
             .bind(uuid.as_bytes().as_slice())
             .execute(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
         Ok(())
     }
 
@@ -189,7 +189,7 @@ impl ScheduleRepository for DatabaseManager {
             .bind(uuid.as_bytes().as_slice())
             .fetch_optional(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
 
         if let Some(row) = row {
             let uuid_bytes: Vec<u8> = row.get("uuid");
@@ -197,23 +197,23 @@ impl ScheduleRepository for DatabaseManager {
 
             let state_str: String = row.get("state");
             let state = serde_json::from_str(&state_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let backup_type_str: String = row.get("backup_type");
             let backup_type = serde_json::from_str(&backup_type_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let comparison_mode_str: String = row.get("comparison_mode");
             let comparison_mode = serde_json::from_str(&comparison_mode_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let options_str: String = row.get("options");
             let options = serde_json::from_str(&options_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let interval_str: String = row.get("interval");
             let interval = serde_json::from_str(&interval_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             Ok(Some(BackupSchedule {
                 uuid,
@@ -239,14 +239,26 @@ impl ScheduleRepository for DatabaseManager {
         let pool = self.get_pool();
         let rows = sqlx::query(
             r#"
-            SELECT uuid, name, state, source_path, destination_path, schedule_type,
-                   last_run_time, next_run_time, created_at, updated_at
+            SELECT
+                uuid,
+                name,
+                state,
+                source_path,
+                destination_path,
+                backup_type,
+                comparison_mode,
+                options,
+                "interval",
+                last_run_time,
+                next_run_time,
+                created_at,
+                updated_at
             FROM BackupSchedules
             "#,
         )
             .fetch_all(&pool)
             .await
-            .map_err(|err| DatabaseError::StatementExecutionFailed(err))?;
+            .map_err(DatabaseError::StatementExecutionFailed)?;
 
         let mut schedules = Vec::new();
         for row in rows {
@@ -255,23 +267,23 @@ impl ScheduleRepository for DatabaseManager {
 
             let state_str: String = row.get("state");
             let state = serde_json::from_str(&state_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let backup_type_str: String = row.get("backup_type");
             let backup_type = serde_json::from_str(&backup_type_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let comparison_mode_str: String = row.get("comparison_mode");
             let comparison_mode = serde_json::from_str(&comparison_mode_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let options_str: String = row.get("options");
             let options = serde_json::from_str(&options_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             let interval_str: String = row.get("interval");
             let interval = serde_json::from_str(&interval_str)
-                .map_err(|err| MiscError::DeserializeError(err))?;
+                .map_err(MiscError::DeserializeError)?;
 
             schedules.push(BackupSchedule {
                 uuid,

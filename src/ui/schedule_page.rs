@@ -1,14 +1,16 @@
+use crate::core::app_config::AppConfig;
 use crate::core::schedule_manager::ScheduleManager;
 use crate::model::backup::backup_execution::*;
 use crate::model::backup::backup_schedule::*;
+use crate::model::error::task::TaskError;
 use eframe::egui;
 use egui_file_dialog::FileDialog;
+use futures::executor::block_on;
+use macros::log;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use futures::executor::block_on;
 use uuid::Uuid;
-use crate::core::app_config::AppConfig;
 
 #[derive(Debug, Clone, PartialEq)]
 enum FolderSelectionMode {
@@ -17,7 +19,7 @@ enum FolderSelectionMode {
 }
 
 pub struct SchedulePage {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     schedule_manager: Arc<ScheduleManager>,
 
     schedules: Vec<BackupSchedule>,
@@ -41,9 +43,9 @@ pub struct SchedulePage {
 }
 
 impl SchedulePage {
-    pub fn new(config: Arc<AppConfig>, schedule_manager: Arc<ScheduleManager>) -> Self {
+    pub fn new(app_config: Arc<AppConfig>, schedule_manager: Arc<ScheduleManager>) -> Self {
         Self {
-            config,
+            app_config,
             schedule_manager,
             schedules: Vec::new(),
             new_schedule_name: String::new(),
@@ -66,15 +68,16 @@ impl SchedulePage {
     fn load_schedules(&mut self) {
         match block_on(self.schedule_manager.get_all_schedules()) {
             Ok(schedules) => self.schedules = schedules,
-            Err(e) => eprintln!("Failed to load schedules: {:?}", e),
+            Err(err) => log!(TaskError::LoadScheduleFailed(err)),
         }
     }
 
     pub fn update(&mut self, ctx: &egui::Context) {
-        // 檢查是否需要刷新
         let should_refresh = match self.last_refresh {
-            None => true, // 第一次載入
-            Some(last) => last.elapsed() > Duration::from_millis(self.config.internal_timestamp as u64),
+            None => true,
+            Some(last) => {
+                last.elapsed() > Duration::from_secs(self.app_config.ui_refresh_time as u64)
+            }
         };
 
         if should_refresh {
@@ -97,14 +100,26 @@ impl SchedulePage {
 
                 ui.separator();
 
-                let active_count = self.schedules.iter().filter(|s| s.state == ScheduleState::Active).count();
-                ui.label(format!("Active: {}", active_count));
+                let active_count = self
+                    .schedules
+                    .iter()
+                    .filter(|s| s.state == ScheduleState::Active)
+                    .count();
+                ui.label(format!("Active: {active_count}"));
 
-                let paused_count = self.schedules.iter().filter(|s| s.state == ScheduleState::Paused).count();
-                ui.label(format!("Paused: {}", paused_count));
+                let paused_count = self
+                    .schedules
+                    .iter()
+                    .filter(|s| s.state == ScheduleState::Paused)
+                    .count();
+                ui.label(format!("Paused: {paused_count}"));
 
-                let disabled_count = self.schedules.iter().filter(|s| s.state == ScheduleState::Disabled).count();
-                ui.label(format!("Disabled: {}", disabled_count));
+                let disabled_count = self
+                    .schedules
+                    .iter()
+                    .filter(|s| s.state == ScheduleState::Disabled)
+                    .count();
+                ui.label(format!("Disabled: {disabled_count}"));
             });
 
             ui.separator();
@@ -116,7 +131,8 @@ impl SchedulePage {
                         .schedules
                         .iter()
                         .filter(|schedule| {
-                            self.show_disabled_schedules || schedule.state != ScheduleState::Disabled
+                            self.show_disabled_schedules
+                                || schedule.state != ScheduleState::Disabled
                         })
                         .cloned()
                         .collect();
@@ -158,16 +174,22 @@ impl SchedulePage {
                                 ScheduleState::Disabled => (egui::Color32::GRAY, "❌", "Disabled"),
                             };
 
-                            ui.colored_label(color, format!("{} {}", symbol, status_text));
+                            ui.colored_label(color, format!("{symbol} {status_text}"));
 
                             if let Some(last_run) = schedule.last_run_time {
                                 ui.separator();
-                                ui.label(format!("Last run: {}", last_run.format("%Y-%m-%d %H:%M")));
+                                ui.label(format!(
+                                    "Last run: {}",
+                                    last_run.format("%Y-%m-%d %H:%M")
+                                ));
                             }
 
                             if let Some(next_run) = schedule.next_run_time {
                                 ui.separator();
-                                ui.label(format!("Next run: {}", next_run.format("%Y-%m-%d %H:%M")));
+                                ui.label(format!(
+                                    "Next run: {}",
+                                    next_run.format("%Y-%m-%d %H:%M")
+                                ));
                             }
                         });
                     });
@@ -182,38 +204,48 @@ impl SchedulePage {
                         match schedule.state {
                             ScheduleState::Active => {
                                 if ui.button("⏸️ Pause").clicked() {
-                                    if let Err(e) = block_on(self.schedule_manager.pause_schedule(schedule.uuid)) {
-                                        eprintln!("Failed to pause schedule: {:?}", e);
+                                    if let Err(err) = block_on(
+                                        self.schedule_manager.pause_schedule(schedule.uuid),
+                                    ) {
+                                        log!(TaskError::PauseScheduleFailed(err));
                                     }
                                 }
                             }
                             ScheduleState::Paused => {
                                 if ui.button("▶️ Resume").clicked() {
-                                    if let Err(e) = block_on(self.schedule_manager.active_schedule(schedule.uuid)) {
-                                        eprintln!("Failed to resume schedule: {:?}", e);
+                                    if let Err(err) = block_on(
+                                        self.schedule_manager.active_schedule(schedule.uuid),
+                                    ) {
+                                        log!(TaskError::EnableScheduleFailed(err));
                                     }
                                 }
                             }
                             ScheduleState::Disabled => {
                                 if ui.button("▶️ Enable").clicked() {
-                                    if let Err(e) = block_on(self.schedule_manager.active_schedule(schedule.uuid)) {
-                                        eprintln!("Failed to enable schedule: {:?}", e);
+                                    if let Err(err) = block_on(
+                                        self.schedule_manager.active_schedule(schedule.uuid),
+                                    ) {
+                                        log!(TaskError::EnableScheduleFailed(err));
                                     }
                                 }
                             }
                         }
 
-                        if schedule.state != ScheduleState::Disabled {
-                            if ui.button("❌ Disable").clicked() {
-                                if let Err(e) = block_on(self.schedule_manager.disable_schedule(schedule.uuid)) {
-                                    eprintln!("Failed to disable schedule: {:?}", e);
-                                }
+                        if schedule.state != ScheduleState::Disabled
+                            && ui.button("❌ Disable").clicked()
+                        {
+                            if let Err(err) =
+                                block_on(self.schedule_manager.disable_schedule(schedule.uuid))
+                            {
+                                log!(TaskError::DisableScheduleFailed(err));
                             }
                         }
 
                         if ui.button("🗑️").clicked() {
-                            if let Err(e) = block_on(self.schedule_manager.remove_schedule(schedule.uuid)) {
-                                eprintln!("Failed to remove schedule: {:?}", e);
+                            if let Err(err) =
+                                block_on(self.schedule_manager.remove_schedule(schedule.uuid))
+                            {
+                                log!(TaskError::RemoveScheduleFailed(err));
                             }
                         }
                     });
@@ -240,10 +272,26 @@ impl SchedulePage {
                             egui::ComboBox::from_label("")
                                 .selected_text(format!("{:?}", self.new_schedule_interval))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.new_schedule_interval, ScheduleInterval::Once, "Once");
-                                    ui.selectable_value(&mut self.new_schedule_interval, ScheduleInterval::Daily, "Daily");
-                                    ui.selectable_value(&mut self.new_schedule_interval, ScheduleInterval::Weekly, "Weekly");
-                                    ui.selectable_value(&mut self.new_schedule_interval, ScheduleInterval::Monthly, "Monthly");
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_interval,
+                                        ScheduleInterval::Once,
+                                        "Once",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_interval,
+                                        ScheduleInterval::Daily,
+                                        "Daily",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_interval,
+                                        ScheduleInterval::Weekly,
+                                        "Weekly",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_interval,
+                                        ScheduleInterval::Monthly,
+                                        "Monthly",
+                                    );
                                 });
                             ui.label("");
                             ui.end_row();
@@ -269,45 +317,52 @@ impl SchedulePage {
 
                     ui.label("Options:");
                     ui.checkbox(&mut self.new_schedule_follow_symlinks, "Follow Symlinks");
-                    ui.checkbox(&mut self.new_schedule_mirror, "Mirror Mode (Delete extra files in destination)");
+                    ui.checkbox(
+                        &mut self.new_schedule_mirror,
+                        "Mirror Mode (Delete extra files in destination)",
+                    );
                     ui.checkbox(&mut self.new_schedule_lock_source, "Lock Source Files");
-                    ui.checkbox(&mut self.new_schedule_backup_permission, "Backup File Permissions");
+                    ui.checkbox(
+                        &mut self.new_schedule_backup_permission,
+                        "Backup File Permissions",
+                    );
 
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        if ui.button("Create Schedule").clicked() {
-                            if !self.new_schedule_name.is_empty()
-                                && !self.new_schedule_source.is_empty()
-                                && !self.new_schedule_destination.is_empty() {
+                        if ui.button("Create Schedule").clicked()
+                            && !self.new_schedule_name.is_empty()
+                            && !self.new_schedule_source.is_empty()
+                            && !self.new_schedule_destination.is_empty()
+                        {
+                            let schedule = BackupSchedule {
+                                uuid: Uuid::new_v4(),
+                                name: self.new_schedule_name.clone(),
+                                state: ScheduleState::Active,
+                                source_path: PathBuf::from(&self.new_schedule_source),
+                                destination_path: PathBuf::from(&self.new_schedule_destination),
+                                backup_type: BackupType::Full,
+                                comparison_mode: None,
+                                options: BackupOptions {
+                                    mirror: self.new_schedule_mirror,
+                                    lock_source: self.new_schedule_lock_source,
+                                    backup_permission: self.new_schedule_backup_permission,
+                                    follow_symlinks: self.new_schedule_follow_symlinks,
+                                },
+                                interval: self.new_schedule_interval,
+                                last_run_time: None,
+                                next_run_time: None,
+                                created_at: chrono::Utc::now().naive_utc(),
+                                updated_at: chrono::Utc::now().naive_utc(),
+                            };
 
-                                let schedule = BackupSchedule {
-                                    uuid: Uuid::new_v4(),
-                                    name: self.new_schedule_name.clone(),
-                                    state: ScheduleState::Active,
-                                    source_path: PathBuf::from(&self.new_schedule_source),
-                                    destination_path: PathBuf::from(&self.new_schedule_destination),
-                                    backup_type: BackupType::Full,
-                                    comparison_mode: None,
-                                    options: BackupOptions {
-                                        mirror: self.new_schedule_mirror,
-                                        lock_source: self.new_schedule_lock_source,
-                                        backup_permission: self.new_schedule_backup_permission,
-                                        follow_symlinks: self.new_schedule_follow_symlinks,
-                                    },
-                                    interval: self.new_schedule_interval,
-                                    last_run_time: None,
-                                    next_run_time: None,
-                                    created_at: chrono::Utc::now().naive_utc(),
-                                    updated_at: chrono::Utc::now().naive_utc(),
-                                };
-
-                                if let Err(e) = block_on(self.schedule_manager.create_schedule(schedule)) {
-                                    eprintln!("Failed to create schedule: {:?}", e);
-                                }
-
-                                self.reset_schedule_form();
+                            if let Err(e) =
+                                block_on(self.schedule_manager.create_schedule(schedule))
+                            {
+                                eprintln!("Failed to create schedule: {e:?}");
                             }
+
+                            self.reset_schedule_form();
                         }
 
                         if ui.button("Cancel").clicked() {
@@ -386,11 +441,15 @@ impl SchedulePage {
                                 }
 
                                 ui.label("Created:");
-                                ui.label(schedule.created_at.format("%Y-%m-%d %H:%M:%S").to_string());
+                                ui.label(
+                                    schedule.created_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                                );
                                 ui.end_row();
 
                                 ui.label("Updated:");
-                                ui.label(schedule.updated_at.format("%Y-%m-%d %H:%M:%S").to_string());
+                                ui.label(
+                                    schedule.updated_at.format("%Y-%m-%d %H:%M:%S").to_string(),
+                                );
                                 ui.end_row();
                             });
 

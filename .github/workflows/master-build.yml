@@ -1,0 +1,76 @@
+name: Master Build
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-release:
+    runs-on: self-hosted
+    container:
+      image: ubuntu:24.04
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential mingw-w64 git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy
+          source ~/.cargo/env
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Add Windows target
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Configure Cargo for cross-compilation
+        shell: bash
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << EOF
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          ar = "x86_64-w64-mingw32-ar"
+          EOF
+
+      - name: Run Clippy
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo clippy
+
+      - name: Build Linux (release)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo build --release --verbose
+
+      - name: Build Windows (release)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo build --target x86_64-pc-windows-gnu --release --verbose
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-linux-release
+          path: target/release/MirrorSphere
+          retention-days: 90
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-windows-release
+          path: target/x86_64-pc-windows-gnu/release/MirrorSphere.exe
+          retention-days: 90

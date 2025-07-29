@@ -1,3 +1,4 @@
+use crate::core::app_config::AppConfig;
 use crate::core::backup_engine::BackupEngine;
 use crate::core::event_bus::EventBus;
 use crate::model::backup::backup_execution::*;
@@ -13,7 +14,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use uuid::Uuid;
-use crate::core::app_config::AppConfig;
 
 #[derive(Debug, Clone)]
 struct ExecutionDisplay {
@@ -41,7 +41,7 @@ enum FolderSelectionMode {
 }
 
 pub struct ExecutionPage {
-    config: Arc<AppConfig>,
+    app_config: Arc<AppConfig>,
     backup_engine: Arc<BackupEngine>,
 
     folder_processing_events: Receiver<FolderProcessing>,
@@ -68,13 +68,17 @@ pub struct ExecutionPage {
 }
 
 impl ExecutionPage {
-    pub fn new(config: Arc<AppConfig>, event_bus: Arc<EventBus>, backup_engine: Arc<BackupEngine>) -> Self {
+    pub fn new(
+        app_config: Arc<AppConfig>,
+        event_bus: Arc<EventBus>,
+        backup_engine: Arc<BackupEngine>,
+    ) -> Self {
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
         let progress_events = event_bus.subscribe::<ExecutionProgress>();
         let backup_error_events = event_bus.subscribe::<BackupError>();
 
         Self {
-            config,
+            app_config,
             backup_engine,
             folder_processing_events,
             progress_events,
@@ -138,14 +142,14 @@ impl ExecutionPage {
                     .iter()
                     .filter(|entry| entry.value().execution.state == BackupState::Running)
                     .count();
-                ui.label(format!("Running: {}", running_count));
+                ui.label(format!("Running: {running_count}"));
 
                 let completed_count = self
                     .executions
                     .iter()
                     .filter(|entry| entry.value().execution.state == BackupState::Completed)
                     .count();
-                ui.label(format!("Completed: {}", completed_count));
+                ui.label(format!("Completed: {completed_count}"));
 
                 let error_count: usize = self
                     .error_messages
@@ -154,7 +158,7 @@ impl ExecutionPage {
                     .sum();
                 if error_count > 0 {
                     ui.separator();
-                    ui.colored_label(egui::Color32::RED, format!("Total Errors: {}", error_count));
+                    ui.colored_label(egui::Color32::RED, format!("Total Errors: {error_count}"));
                 }
             });
 
@@ -197,15 +201,26 @@ impl ExecutionPage {
         self.draw_execution_errors_window(ctx);
     }
 
-    fn draw_execution_item(&mut self, ui: &mut egui::Ui, task_id: Uuid, task_display: &ExecutionDisplay) {
+    fn draw_execution_item(
+        &mut self,
+        ui: &mut egui::Ui,
+        task_id: Uuid,
+        task_display: &ExecutionDisplay,
+    ) {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .inner_margin(8.0)
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
-                        ui.label(format!("🗂️ {}", task_display.execution.source_path.display()));
-                        ui.label(format!("📁 {}", task_display.execution.destination_path.display()));
+                        ui.label(format!(
+                            "🗂️ {}",
+                            task_display.execution.source_path.display()
+                        ));
+                        ui.label(format!(
+                            "📁 {}",
+                            task_display.execution.destination_path.display()
+                        ));
 
                         ui.horizontal(|ui| {
                             let (color, symbol) = match task_display.execution.state {
@@ -217,19 +232,30 @@ impl ExecutionPage {
                                 BackupState::Pending => (egui::Color32::GRAY, "⏸️"),
                             };
 
-                            ui.colored_label(color, format!("{} {:?}", symbol, task_display.execution.state));
+                            ui.colored_label(
+                                color,
+                                format!("{} {:?}", symbol, task_display.execution.state),
+                            );
 
                             if !task_display.current_folder.is_empty() {
                                 ui.separator();
-                                ui.label(format!("📄 {}",
-                                                 task_display.current_folder.chars().take(50).collect::<String>()));
+                                ui.label(format!(
+                                    "📄 {}",
+                                    task_display
+                                        .current_folder
+                                        .chars()
+                                        .take(50)
+                                        .collect::<String>()
+                                ));
                             }
                         });
 
                         ui.horizontal(|ui| {
                             if task_display.processed_files > 0 || task_display.error_count > 0 {
-                                ui.label(format!("📊 Processed: {} | Errors: {}",
-                                                 task_display.processed_files, task_display.error_count));
+                                ui.label(format!(
+                                    "📊 Processed: {} | Errors: {}",
+                                    task_display.processed_files, task_display.error_count
+                                ));
                             }
                         });
                     });
@@ -247,27 +273,33 @@ impl ExecutionPage {
                         match task_display.execution.state {
                             BackupState::Pending | BackupState::Suspended => {
                                 if ui.button("▶️ Start").clicked() {
-                                    if let Err(e) = block_on(self.backup_engine.start_execution(task_id)) {
-                                        eprintln!("Failed to start execution: {:?}", e);
+                                    if let Err(e) =
+                                        block_on(self.backup_engine.start_execution(task_id))
+                                    {
+                                        eprintln!("Failed to start execution: {e:?}");
                                     }
                                 }
                             }
                             BackupState::Running => {
                                 if ui.button("⏸️ Pause").clicked() {
-                                    if let Err(e) = block_on(self.backup_engine.suspend_execution(task_id)) {
-                                        eprintln!("Failed to suspend execution: {:?}", e);
+                                    if let Err(e) =
+                                        block_on(self.backup_engine.suspend_execution(task_id))
+                                    {
+                                        eprintln!("Failed to suspend execution: {e:?}");
                                     }
                                 }
                             }
                             _ => {}
                         }
 
-                        if task_display.execution.state == BackupState::Suspended {
-                            if ui.button("▶️ Resume").clicked() {
-                                let rt = tokio::runtime::Handle::current();
-                                if let Err(e) = rt.block_on(self.backup_engine.resume_execution(task_id)) {
-                                    eprintln!("Failed to resume execution: {:?}", e);
-                                }
+                        if task_display.execution.state == BackupState::Suspended
+                            && ui.button("▶️ Resume").clicked()
+                        {
+                            let rt = tokio::runtime::Handle::current();
+                            if let Err(e) =
+                                rt.block_on(self.backup_engine.resume_execution(task_id))
+                            {
+                                eprintln!("Failed to resume execution: {e:?}");
                             }
                         }
 
@@ -316,37 +348,44 @@ impl ExecutionPage {
 
                     ui.label("Options:");
                     ui.checkbox(&mut self.new_task_follow_symlinks, "Follow Symlinks");
-                    ui.checkbox(&mut self.new_task_mirror, "Mirror Mode (Delete extra files in destination)");
+                    ui.checkbox(
+                        &mut self.new_task_mirror,
+                        "Mirror Mode (Delete extra files in destination)",
+                    );
                     ui.checkbox(&mut self.new_task_lock_source, "Lock Source Files");
-                    ui.checkbox(&mut self.new_task_backup_permission, "Backup File Permissions");
+                    ui.checkbox(
+                        &mut self.new_task_backup_permission,
+                        "Backup File Permissions",
+                    );
 
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        if ui.button("Create Execution").clicked() {
-                            if !self.new_task_source.is_empty() && !self.new_task_destination.is_empty() {
-                                let execution = BackupExecution {
-                                    uuid: Uuid::new_v4(),
-                                    state: BackupState::Pending,
-                                    source_path: PathBuf::from(&self.new_task_source),
-                                    destination_path: PathBuf::from(&self.new_task_destination),
-                                    backup_type: BackupType::Full,
-                                    comparison_mode: None,
-                                    options: BackupOptions {
-                                        mirror: self.new_task_mirror,
-                                        lock_source: self.new_task_lock_source,
-                                        backup_permission: self.new_task_backup_permission,
-                                        follow_symlinks: self.new_task_follow_symlinks,
-                                    },
-                                };
+                        if ui.button("Create Execution").clicked()
+                            && !self.new_task_source.is_empty()
+                            && !self.new_task_destination.is_empty()
+                        {
+                            let execution = BackupExecution {
+                                uuid: Uuid::new_v4(),
+                                state: BackupState::Pending,
+                                source_path: PathBuf::from(&self.new_task_source),
+                                destination_path: PathBuf::from(&self.new_task_destination),
+                                backup_type: BackupType::Full,
+                                comparison_mode: None,
+                                options: BackupOptions {
+                                    mirror: self.new_task_mirror,
+                                    lock_source: self.new_task_lock_source,
+                                    backup_permission: self.new_task_backup_permission,
+                                    follow_symlinks: self.new_task_follow_symlinks,
+                                },
+                            };
 
-                                let execution_display = ExecutionDisplay::from(execution.clone());
-                                self.executions.insert(execution.uuid, execution_display);
+                            let execution_display = ExecutionDisplay::from(execution.clone());
+                            self.executions.insert(execution.uuid, execution_display);
 
-                                let rt = tokio::runtime::Handle::current();
-                                rt.block_on(self.backup_engine.add_execution(execution));
-                                self.reset_form();
-                            }
+                            let rt = tokio::runtime::Handle::current();
+                            rt.block_on(self.backup_engine.add_execution(execution));
+                            self.reset_form();
                         }
 
                         if ui.button("Cancel").clicked() {
@@ -378,8 +417,14 @@ impl ExecutionPage {
             let mut show_window = true;
 
             let window_title = if let Some(task) = self.executions.get(&task_id) {
-                format!("Execution Errors - {}",
-                        task.execution.source_path.file_name().unwrap_or_default().to_string_lossy())
+                format!(
+                    "Execution Errors - {}",
+                    task.execution
+                        .source_path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                )
             } else {
                 "Execution Errors".to_string()
             };
@@ -394,12 +439,15 @@ impl ExecutionPage {
                         ui.horizontal(|ui| {
                             ui.heading(format!("Error List ({} items)", errors.len()));
 
-                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button("🗑️ Clear All Errors").clicked() {
-                                    self.error_messages.remove(&task_id);
-                                    self.viewing_errors_for_task = None;
-                                }
-                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("🗑️ Clear All Errors").clicked() {
+                                        self.error_messages.remove(&task_id);
+                                        self.viewing_errors_for_task = None;
+                                    }
+                                },
+                            );
                         });
 
                         ui.separator();
@@ -418,7 +466,10 @@ impl ExecutionPage {
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
                                                 ui.label(format!("{}.", i + 1));
-                                                ui.colored_label(egui::Color32::LIGHT_RED, format!("{}", error));
+                                                ui.colored_label(
+                                                    egui::Color32::LIGHT_RED,
+                                                    format!("{error}"),
+                                                );
                                             });
                                         });
                                 }

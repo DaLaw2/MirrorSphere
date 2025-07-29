@@ -25,7 +25,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let symlink_metadata = tokio::fs::symlink_metadata(path)
             .await
@@ -33,8 +33,6 @@ pub trait FileSystemTrait {
 
         Ok(symlink_metadata.file_type().is_symlink())
     }
-
-    async fn create_symlink(&self, target: &PathBuf, link_path: &PathBuf) -> Result<(), Error>;
 
     async fn copy_symlink(
         &self,
@@ -47,7 +45,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let mut result = Vec::new();
         let reader = fs::read_dir(path)
@@ -68,7 +66,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         fs::create_dir_all(path)
             .await
@@ -81,7 +79,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         fs::remove_dir_all(path)
             .await
@@ -94,7 +92,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         fs::copy(source, destination)
             .await
@@ -107,7 +105,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         fs::remove_file(path)
             .await
@@ -150,7 +148,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let file_lock = FileLock::new(path).await?;
 
@@ -162,7 +160,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let path_clone = path.clone();
         let hash = spawn_blocking(move || {
@@ -177,7 +175,7 @@ pub trait FileSystemTrait {
             }
         })
         .await
-        .map_err(|err| SystemError::ThreadPanic(err))??;
+        .map_err(SystemError::ThreadPanic)??;
         Ok(hash)
     }
 
@@ -190,7 +188,7 @@ pub trait FileSystemTrait {
         let _permit = semaphore
             .acquire_owned()
             .await
-            .map_err(|err| IOError::SemaphoreClosed(err))?;
+            .map_err(IOError::SemaphoreClosed)?;
 
         let source_metadata =
             fs::metadata(source)

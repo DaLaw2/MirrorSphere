@@ -14,7 +14,7 @@ impl DatabaseLock {
         if tokio::fs::metadata(DATABASE_LOCK_PATH).await.is_err() {
             File::create(&DATABASE_LOCK_PATH)
                 .await
-                .map_err(|err| DatabaseError::LockDatabaseFailed(err))?;
+                .map_err(DatabaseError::LockDatabaseFailed)?;
             Ok(lock)
         } else {
             Err(DatabaseError::LockDatabaseFailed("Lock file already exists."))?
@@ -24,6 +24,6 @@ impl DatabaseLock {
 
 impl Drop for DatabaseLock {
     fn drop(&mut self) {
-        let _ = fs::remove_file(&DATABASE_LOCK_PATH);
+        let _ = fs::remove_file(DATABASE_LOCK_PATH);
     }
 }

@@ -54,7 +54,7 @@ impl ProgressTracker {
 
         let config = bincode::config::standard();
         let serialized = bincode::serde::encode_to_vec(data, config)
-            .map_err(|err| MiscError::DeserializeError(err))?;
+            .map_err(MiscError::DeserializeError)?;
         let data_len = serialized.len();
 
         let file = OpenOptions::new()
@@ -99,7 +99,7 @@ impl ProgressTracker {
 
         let config = bincode::config::standard();
         let (progress_data, _) = bincode::serde::decode_from_slice(&mmap, config)
-            .map_err(|err| MiscError::DeserializeError(err))?;
+            .map_err(MiscError::DeserializeError)?;
 
         Ok(progress_data)
     }

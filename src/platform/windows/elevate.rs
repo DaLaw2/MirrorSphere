@@ -17,9 +17,10 @@ use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows::Win32::UI::Shell::{ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW};
 use windows::Win32::UI::WindowsAndMessaging::SW_NORMAL;
 
+#[allow(dead_code)]
 pub fn elevate() -> Result<(), Error> {
     let exe = env::current_exe()
-        .map_err(|err| SystemError::UnexpectError(err))?;
+        .map_err(SystemError::UnexpectError)?;
     let args: Vec<String> = env::args().skip(1).collect();
     let params = args.join(" ");
 
@@ -34,11 +35,11 @@ pub fn elevate() -> Result<(), Error> {
         .collect::<Vec<_>>();
 
     unsafe {
-        win_runas(file, params)?;
-        adjust_token_privileges()
+        win_runas(file, params)
     }
 }
 
+#[allow(dead_code)]
 unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> Result<(), Error> {
     unsafe {
         let mut sei: SHELLEXECUTEINFOW = mem::zeroed();
@@ -63,7 +64,7 @@ unsafe fn win_runas(cmd: Vec<u16>, args: Vec<u16>) -> Result<(), Error> {
     }
 }
 
-unsafe fn adjust_token_privileges() -> Result<(), Error> {
+pub fn adjust_token_privileges() -> Result<(), Error> {
     unsafe {
         let mut token_handle: HANDLE = HANDLE::default();
 
@@ -72,7 +73,7 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
             TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY,
             &mut token_handle,
         )
-        .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
+        .map_err(SystemError::AdjustTokenPrivilegesFailed)?;
 
         let mut luid = LUID {
             LowPart: 0,
@@ -80,7 +81,7 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
         };
 
         LookupPrivilegeValueW(PCWSTR::null(), SE_SECURITY_NAME, &mut luid)
-            .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
+            .map_err(SystemError::AdjustTokenPrivilegesFailed)?;
 
         let mut token_privilege = TOKEN_PRIVILEGES {
             PrivilegeCount: 1,
@@ -98,9 +99,9 @@ unsafe fn adjust_token_privileges() -> Result<(), Error> {
             None,
             None,
         )
-        .map_err(|err| SystemError::AdjustTokenPrivilegesFailed(err))?;
+        .map_err(SystemError::AdjustTokenPrivilegesFailed)?;
 
-        CloseHandle(token_handle).map_err(|err| MiscError::ObjectFreeFailed(err))?;
+        CloseHandle(token_handle).map_err(MiscError::ObjectFreeFailed)?;
 
         // if GetLastError().is_err() {
         //     Err(SystemError::AdjustTokenPrivilegesFailed)?

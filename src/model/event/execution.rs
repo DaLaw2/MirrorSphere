@@ -1,5 +1,5 @@
 use crate::interface::event::Event;
-use crate::model::backup::backup_execution::{BackupExecution, BackupState};
+use crate::model::backup::backup_execution::BackupExecution;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]
@@ -31,13 +31,6 @@ pub struct ExecutionResumeRequested {
     pub execution_id: Uuid,
 }
 impl Event for ExecutionResumeRequested {}
-
-#[derive(Clone, Debug)]
-pub struct ExecutionStateChanged {
-    pub execution_id: Uuid,
-    pub new_state: BackupState,
-}
-impl Event for ExecutionStateChanged {}
 
 #[derive(Clone, Debug)]
 pub struct ExecutionProgress {

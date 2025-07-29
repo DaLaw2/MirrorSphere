@@ -1,0 +1,76 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+jobs:
+  build-and-check:
+    runs-on: self-hosted
+    container:
+      image: ubuntu:24.04
+
+    steps:
+      - name: Install system dependencies
+        run: |
+          apt-get update
+          apt-get install -y curl build-essential mingw-w64 git
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        shell: bash
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --component clippy
+          source ~/.cargo/env
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Add Windows target
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Configure Cargo for cross-compilation
+        shell: bash
+        run: |
+          mkdir -p .cargo
+          cat > .cargo/config.toml << EOF
+          [target.x86_64-pc-windows-gnu]
+          linker = "x86_64-w64-mingw32-gcc"
+          ar = "x86_64-w64-mingw32-ar"
+          EOF
+
+      - name: Run Clippy
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo clippy
+
+      - name: Build Linux (debug)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo build --verbose
+
+      - name: Build Windows (debug)
+        shell: bash
+        run: |
+          source ~/.cargo/env
+          cargo build --target x86_64-pc-windows-gnu --verbose
+
+      - name: Upload Linux binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-linux-debug
+          path: target/debug/MirrorSphere
+          retention-days: 90
+
+      - name: Upload Windows binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: mirrorsphere-windows-debug
+          path: target/x86_64-pc-windows-gnu/debug/MirrorSphere.exe
+          retention-days: 90
