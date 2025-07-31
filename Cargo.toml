@@ -1,7 +1,9 @@
 [package]
 name = "MirrorSphere"
-version = "0.1.0"
+version = "0.0.9"
 edition = "2024"
+authors = ["DaLaw2"]
+build = "build.rs"
 
 [dependencies]
 async-trait = "0.1.88"
@@ -16,12 +18,14 @@ eframe = "0.32.0"
 egui-file-dialog = "0.11.0"
 fs4 = { version = "0.13.1", features = ["sync", "tokio"] }
 futures = "0.3.31"
+image = "0.25.6"
 libc = "0.2.169"
 log-panics = { version = "2.1.0", features = ["with-backtrace"] }
 macros = { path = "macros" }
 md-5 = "0.10.6"
 memmap2 = "0.9.5"
 privilege = "0.3.0"
+rust-embed = "8.7.2"
 serde = { version = "1.0.219", features = ["derive"] }
 serde_json = "1.0.140"
 sha2 = "0.10.8"
@@ -30,7 +34,7 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "sqlite", "uuid", "deri
 thiserror = "2.0.12"
 tokio-stream = "0.1.17"
 tokio = { version = "1.45.1", features = ["full"] }
-toml = "0.8.22"
+toml = "0.9.4"
 tracing = "0.1.41"
 tracing-appender = "0.2.3"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
@@ -44,5 +48,8 @@ version = "0.61.1"
 features = [
     "Win32", "Win32_System", "Win32_System_Memory", "Win32_System_IO", "Win32_System_Threading", "Win32_System_Time",
     "Win32_System_Registry", "Win32_System_Com", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage",
-    "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation"
+    "Win32_Storage_FileSystem", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Foundation", "Win32_System_Console"
 ]
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1.12"
