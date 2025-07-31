@@ -7,6 +7,7 @@ use crate::ui::main_page::MainPage;
 use eframe::egui;
 use std::sync::Arc;
 use crate::core::app_config::AppConfig;
+use crate::utils::assets::Assets;
 
 pub struct GuiManager {
     app_config: Arc<AppConfig>,
@@ -36,10 +37,13 @@ impl GuiManager {
         let backup_engine = self.backup_engine.clone();
         let schedule_manager = self.schedule_manager.clone();
 
+        let icon_data = Assets::load_app_icon()?;
+
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
-                .with_inner_size([1200.0, 800.0])
-                .with_title("MirrorSphere"),
+                .with_inner_size([800.0, 450.0])
+                .with_title("MirrorSphere")
+                .with_icon(icon_data),
             ..Default::default()
         };
 

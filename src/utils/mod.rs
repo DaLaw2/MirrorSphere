@@ -1,3 +1,4 @@
+pub mod assets;
 pub mod database_lock;
 pub mod file_hash;
 pub mod file_lock;

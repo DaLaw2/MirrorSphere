@@ -13,5 +13,9 @@ traceable! {
 
         #[error("Failed to initialize UI platform")]
         UIPlatformError => tracing::Level::ERROR,
+
+        #[no_source]
+        #[error("Assert file not found")]
+        AssertFileNotFound => tracing::Level::ERROR,
     }
 }
