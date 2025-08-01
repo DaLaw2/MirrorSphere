@@ -2,7 +2,7 @@ use crate::platform::raii_guard::SecurityDescriptorGuard;
 use std::time::SystemTime;
 use windows::Win32::Security::{ACL, PSID};
 
-#[derive(Clone, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub struct Attributes {
     pub attributes: u32,
     pub creation_time: SystemTime,
@@ -16,6 +16,7 @@ impl PartialEq for Attributes {
     }
 }
 
+#[derive(Debug)]
 pub struct Permissions {
     pub owner: PSID,
     pub primary_group: PSID,

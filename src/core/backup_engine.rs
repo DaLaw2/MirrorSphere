@@ -67,6 +67,17 @@ impl BackupEngine {
         }
     }
 
+    pub fn get_execution(&self, uuid: &Uuid) -> Option<BackupExecution> {
+        self.executions.get(uuid).map(|entry| entry.clone())
+    }
+
+    pub fn get_all_executions(&self) -> Vec<(Uuid, BackupExecution)> {
+        self.executions
+            .iter()
+            .map(|entry| (*entry.key(), entry.value().clone()))
+            .collect()
+    }
+
     pub async fn add_execution(&self, execution: BackupExecution) {
         self.executions.insert(execution.uuid, execution);
     }

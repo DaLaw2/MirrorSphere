@@ -13,6 +13,8 @@ use futures::executor::block_on;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::time::{Duration, Instant};
+use tracing::error;
 use uuid::Uuid;
 
 #[derive(Debug, Clone)]
@@ -65,6 +67,7 @@ pub struct ExecutionPage {
     pub auto_scroll_errors: bool,
     pub show_completed_tasks: bool,
     viewing_errors_for_task: Option<Uuid>,
+    last_refresh: Option<Instant>,
 }
 
 impl ExecutionPage {
@@ -97,6 +100,7 @@ impl ExecutionPage {
             auto_scroll_errors: true,
             show_completed_tasks: true,
             viewing_errors_for_task: None,
+            last_refresh: None,
         }
     }
 
@@ -124,13 +128,93 @@ impl ExecutionPage {
         }
     }
 
+    fn sync_all_execution_states(&mut self) {
+        let latest_executions = self.backup_engine.get_all_executions();
+        let latest_ids: std::collections::HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
+
+        for (task_id, latest_execution) in latest_executions {
+            if let Some(mut display) = self.executions.get_mut(&task_id) {
+                display.execution = latest_execution;
+            }
+        }
+
+        self.executions.retain(|task_id, _| latest_ids.contains(task_id));
+        self.error_messages.retain(|task_id, _| latest_ids.contains(task_id));
+
+        if let Some(viewing_id) = self.viewing_errors_for_task {
+            if !latest_ids.contains(&viewing_id) {
+                self.viewing_errors_for_task = None;
+            }
+        }
+    }
+
+    fn sync_execution_state(&mut self, task_id: Uuid) {
+        if let Some(latest_execution) = self.backup_engine.get_execution(&task_id) {
+            if let Some(mut display) = self.executions.get_mut(&task_id) {
+                display.execution = latest_execution;
+            }
+        }
+    }
+
+    fn handle_start_execution(&mut self, task_id: Uuid) {
+        match block_on(self.backup_engine.start_execution(task_id)) {
+            Ok(_) => self.sync_execution_state(task_id),
+            Err(err) => {
+                self.sync_execution_state(task_id);
+                error!("{}", err);
+            }
+        }
+    }
+
+    fn handle_suspend_execution(&mut self, task_id: Uuid) {
+        match block_on(self.backup_engine.suspend_execution(task_id)) {
+            Ok(_) => self.sync_execution_state(task_id),
+            Err(err) => {
+                self.sync_execution_state(task_id);
+                error!("{}", err);
+            }
+        }
+    }
+
+    fn handle_resume_execution(&mut self, task_id: Uuid) {
+        match block_on(self.backup_engine.resume_execution(task_id)) {
+            Ok(_) => self.sync_execution_state(task_id),
+            Err(err) => {
+                self.sync_execution_state(task_id);
+                error!("{}", err);
+            }
+        }
+    }
+
+    fn handle_remove_execution(&mut self, task_id: Uuid) {
+        block_on(self.backup_engine.remove_execution(&task_id));
+        self.executions.remove(&task_id);
+    }
+
     pub fn update(&mut self, ctx: &egui::Context) {
         self.process_events();
+
+        let should_refresh = match self.last_refresh {
+            None => true,
+            Some(last) => {
+                last.elapsed() > Duration::from_secs(self.app_config.ui_refresh_time as u64)
+            }
+        };
+
+        if should_refresh {
+            self.sync_all_execution_states();
+            self.last_refresh = Some(Instant::now());
+        }
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.heading("Backup Executions");
 
             ui.horizontal(|ui| {
+                if ui.button("🔄 Refresh").clicked() {
+                    self.sync_all_execution_states();
+                    self.last_refresh = Some(Instant::now());
+                }
+
                 if ui.button("➕ Add Execution").clicked() {
                     self.show_add_task_dialog = true;
                 }
@@ -271,45 +355,26 @@ impl ExecutionPage {
                         }
 
                         match task_display.execution.state {
-                            BackupState::Pending | BackupState::Suspended => {
+                            BackupState::Pending => {
                                 if ui.button("▶ Start").clicked() {
-                                    if let Err(e) =
-                                        block_on(self.backup_engine.start_execution(task_id))
-                                    {
-                                        eprintln!("Failed to start execution: {e:?}");
-                                    }
+                                    self.handle_start_execution(task_id);
+                                }
+                            }
+                            BackupState::Suspended => {
+                                if ui.button("▶ Resume").clicked() {
+                                    self.handle_resume_execution(task_id);
                                 }
                             }
                             BackupState::Running => {
                                 if ui.button("⏸ Pause").clicked() {
-                                    if let Err(e) =
-                                        block_on(self.backup_engine.suspend_execution(task_id))
-                                    {
-                                        eprintln!("Failed to suspend execution: {e:?}");
-                                    }
+                                    self.handle_suspend_execution(task_id);
                                 }
                             }
                             _ => {}
                         }
 
-                        if task_display.execution.state == BackupState::Suspended
-                            && ui.button("▶ Resume").clicked()
-                        {
-                            let rt = tokio::runtime::Handle::current();
-                            if let Err(e) =
-                                rt.block_on(self.backup_engine.resume_execution(task_id))
-                            {
-                                eprintln!("Failed to resume execution: {e:?}");
-                            }
-                        }
-
                         if ui.button("🗑").clicked() {
-                            block_on(self.backup_engine.remove_execution(&task_id));
-                            self.executions.remove(&task_id);
-                            self.error_messages.remove(&task_id);
-                            if self.viewing_errors_for_task == Some(task_id) {
-                                self.viewing_errors_for_task = None;
-                            }
+                            self.handle_remove_execution(task_id);
                         }
                     });
                 });
@@ -379,10 +444,9 @@ impl ExecutionPage {
                                 },
                             };
 
+                            block_on(self.backup_engine.add_execution(execution.clone()));
                             let execution_display = ExecutionDisplay::from(execution.clone());
                             self.executions.insert(execution.uuid, execution_display);
-
-                            block_on(self.backup_engine.add_execution(execution));
                             self.reset_form();
                         }
 

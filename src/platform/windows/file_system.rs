@@ -16,15 +16,12 @@ use std::time::SystemTime;
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
 use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_ALL, SYSTEMTIME};
+use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_WRITE, SYSTEMTIME};
 use windows::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
 };
 use windows::Win32::Security::{ACL, BACKUP_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
-use windows::Win32::Storage::FileSystem::{
-    CreateFileW, SetFileAttributesW, SetFileTime, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-};
+use windows::Win32::Storage::FileSystem::{CreateFileW, SetFileAttributesW, SetFileTime, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_WRITE, OPEN_EXISTING};
 use windows::Win32::System::Time::SystemTimeToFileTime;
 
 pub struct FileSystem {
@@ -121,11 +118,11 @@ impl FileSystemTrait for FileSystem {
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
-                GENERIC_ALL.0,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                GENERIC_WRITE.0,
+                FILE_SHARE_WRITE,
                 None,
                 OPEN_EXISTING,
-                FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
+                FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_BACKUP_SEMANTICS.0),
                 None,
             )
             .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;

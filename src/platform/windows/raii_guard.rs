@@ -2,6 +2,7 @@ use std::ops::Deref;
 use windows::Win32::Foundation::{LocalFree, HLOCAL};
 use windows::Win32::Security::PSECURITY_DESCRIPTOR;
 
+#[derive(Debug)]
 pub struct SecurityDescriptorGuard {
     descriptor: PSECURITY_DESCRIPTOR,
 }
