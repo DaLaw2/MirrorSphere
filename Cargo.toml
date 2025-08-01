@@ -2,8 +2,8 @@
 name = "MirrorSphere"
 version = "0.0.9"
 edition = "2024"
-authors = ["DaLaw2"]
 build = "build.rs"
+authors = ["DaLaw2"]
 
 [dependencies]
 async-trait = "0.1.88"
@@ -17,6 +17,7 @@ digest = "0.10.7"
 eframe = "0.32.0"
 egui-file-dialog = "0.11.0"
 fs4 = { version = "0.13.1", features = ["sync", "tokio"] }
+font-kit = "0.14.3"
 futures = "0.3.31"
 image = "0.25.6"
 libc = "0.2.169"

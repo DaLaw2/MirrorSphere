@@ -1,8 +1,8 @@
 use crate::interface::file_system::FileSystemTrait;
+use crate::model::error::Error;
 use crate::model::error::io::IOError;
 use crate::model::error::misc::MiscError;
 use crate::model::error::system::SystemError;
-use crate::model::error::Error;
 use crate::platform::attributes::{Attributes, Permissions};
 use crate::platform::raii_guard::SecurityDescriptorGuard;
 use async_trait::async_trait;
@@ -15,17 +15,20 @@ use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Semaphore;
 use tokio::task::spawn_blocking;
-use windows::core::PCWSTR;
-use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_ALL, SYSTEMTIME};
+use windows::Win32::Foundation::{CloseHandle, FILETIME, GENERIC_WRITE, SYSTEMTIME};
 use windows::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
+    GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
 };
-use windows::Win32::Security::{ACL, BACKUP_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
+use windows::Win32::Security::{
+    ACL, BACKUP_SECURITY_INFORMATION, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
+    OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SACL_SECURITY_INFORMATION,
+};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, SetFileAttributesW, SetFileTime, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_DELETE,
-    FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+    CreateFileW, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_WRITE,
+    OPEN_EXISTING, SetFileAttributesW, SetFileTime,
 };
 use windows::Win32::System::Time::SystemTimeToFileTime;
+use windows::core::PCWSTR;
 
 pub struct FileSystem {
     semaphore: Arc<Semaphore>,
@@ -52,10 +55,9 @@ impl FileSystemTrait for FileSystem {
             .await
             .map_err(IOError::SemaphoreClosed)?;
 
-        let link_target =
-            tokio::fs::read_link(source_link)
-                .await
-                .map_err(|err| IOError::ReadSymbolLinkFailed(source_link.clone(), err))?;
+        let link_target = tokio::fs::read_link(source_link)
+            .await
+            .map_err(|err| IOError::ReadSymbolLinkFailed(source_link.clone(), err))?;
 
         if link_target.is_dir() {
             tokio::fs::symlink_dir(&link_target, destination_link).await
@@ -121,11 +123,11 @@ impl FileSystemTrait for FileSystem {
 
             let handle = CreateFileW(
                 PCWSTR(file_path_wild.as_ptr()),
-                GENERIC_ALL.0,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                GENERIC_WRITE.0,
+                FILE_SHARE_WRITE,
                 None,
                 OPEN_EXISTING,
-                FILE_FLAGS_AND_ATTRIBUTES(file_attributes),
+                FILE_FLAGS_AND_ATTRIBUTES(FILE_FLAG_BACKUP_SEMANTICS.0),
                 None,
             )
             .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
@@ -158,7 +160,10 @@ impl FileSystemTrait for FileSystem {
 
         let path = path.clone();
         let permission = spawn_blocking(move || unsafe {
-            let security_info = BACKUP_SECURITY_INFORMATION;
+            let security_info = OWNER_SECURITY_INFORMATION
+                | GROUP_SECURITY_INFORMATION
+                | DACL_SECURITY_INFORMATION
+                | SACL_SECURITY_INFORMATION;
             let mut owner = PSID::default();
             let mut primary_group = PSID::default();
             let mut dacl: *mut ACL = ptr::null_mut();
@@ -249,8 +254,7 @@ impl FileSystem {
         let mut file_time = FILETIME::default();
 
         unsafe {
-            SystemTimeToFileTime(&sys_time, &mut file_time)
-                .map_err(SystemError::UnexpectError)?;
+            SystemTimeToFileTime(&sys_time, &mut file_time).map_err(SystemError::UnexpectError)?;
             Ok(file_time)
         }
     }
