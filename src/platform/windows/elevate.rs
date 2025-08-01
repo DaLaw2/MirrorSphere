@@ -4,7 +4,7 @@ use crate::model::error::system::SystemError;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 use std::{env, mem};
-use windows::Win32::Foundation::{CloseHandle, GetLastError, HANDLE, LUID};
+use windows::Win32::Foundation::{CloseHandle, GetLastError, ERROR_NOT_ALL_ASSIGNED, HANDLE, LUID};
 use windows::Win32::Security::{
     AdjustTokenPrivileges, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, SE_BACKUP_NAME,
     SE_PRIVILEGE_ENABLED, SE_RESTORE_NAME, SE_SECURITY_NAME, TOKEN_ADJUST_PRIVILEGES,
@@ -107,7 +107,7 @@ pub fn adjust_token_privileges() -> Result<(), Error> {
         CloseHandle(token_handle).map_err(MiscError::ObjectFreeFailed)?;
 
         let last_error = GetLastError();
-        if last_error.is_err() {
+        if last_error == ERROR_NOT_ALL_ASSIGNED  {
             Err(SystemError::AdjustTokenPrivilegesFailed(format!("{:?}", last_error)))?
         }
 
