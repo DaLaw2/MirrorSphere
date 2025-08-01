@@ -214,7 +214,7 @@ impl ExecutionPage {
                 ui.horizontal(|ui| {
                     ui.vertical(|ui| {
                         ui.label(format!(
-                            "🗂️ {}",
+                            "📁 {}",
                             task_display.execution.source_path.display()
                         ));
                         ui.label(format!(
@@ -224,12 +224,12 @@ impl ExecutionPage {
 
                         ui.horizontal(|ui| {
                             let (color, symbol) = match task_display.execution.state {
-                                BackupState::Running => (egui::Color32::GREEN, "▶️"),
-                                BackupState::Suspended => (egui::Color32::YELLOW, "⏸️"),
+                                BackupState::Running => (egui::Color32::GREEN, "▶"),
+                                BackupState::Suspended => (egui::Color32::YELLOW, "⏸"),
                                 BackupState::Completed => (egui::Color32::BLUE, "✅"),
                                 BackupState::Failed => (egui::Color32::RED, "❌"),
-                                BackupState::Canceled => (egui::Color32::GRAY, "⏹️"),
-                                BackupState::Pending => (egui::Color32::GRAY, "⏸️"),
+                                BackupState::Canceled => (egui::Color32::GRAY, "⏹"),
+                                BackupState::Pending => (egui::Color32::GRAY, "⏸"),
                             };
 
                             ui.colored_label(
@@ -272,7 +272,7 @@ impl ExecutionPage {
 
                         match task_display.execution.state {
                             BackupState::Pending | BackupState::Suspended => {
-                                if ui.button("▶️ Start").clicked() {
+                                if ui.button("▶ Start").clicked() {
                                     if let Err(e) =
                                         block_on(self.backup_engine.start_execution(task_id))
                                     {
@@ -281,7 +281,7 @@ impl ExecutionPage {
                                 }
                             }
                             BackupState::Running => {
-                                if ui.button("⏸️ Pause").clicked() {
+                                if ui.button("⏸ Pause").clicked() {
                                     if let Err(e) =
                                         block_on(self.backup_engine.suspend_execution(task_id))
                                     {
@@ -293,7 +293,7 @@ impl ExecutionPage {
                         }
 
                         if task_display.execution.state == BackupState::Suspended
-                            && ui.button("▶️ Resume").clicked()
+                            && ui.button("▶ Resume").clicked()
                         {
                             let rt = tokio::runtime::Handle::current();
                             if let Err(e) =
@@ -303,9 +303,8 @@ impl ExecutionPage {
                             }
                         }
 
-                        if ui.button("🗑️").clicked() {
-                            let rt = tokio::runtime::Handle::current();
-                            rt.block_on(self.backup_engine.remove_execution(&task_id));
+                        if ui.button("🗑").clicked() {
+                            block_on(self.backup_engine.remove_execution(&task_id));
                             self.executions.remove(&task_id);
                             self.error_messages.remove(&task_id);
                             if self.viewing_errors_for_task == Some(task_id) {
@@ -383,8 +382,7 @@ impl ExecutionPage {
                             let execution_display = ExecutionDisplay::from(execution.clone());
                             self.executions.insert(execution.uuid, execution_display);
 
-                            let rt = tokio::runtime::Handle::current();
-                            rt.block_on(self.backup_engine.add_execution(execution));
+                            block_on(self.backup_engine.add_execution(execution));
                             self.reset_form();
                         }
 
@@ -442,7 +440,7 @@ impl ExecutionPage {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("🗑️ Clear All Errors").clicked() {
+                                    if ui.button("🗑 Clear All Errors").clicked() {
                                         self.error_messages.remove(&task_id);
                                         self.viewing_errors_for_task = None;
                                     }
@@ -482,7 +480,7 @@ impl ExecutionPage {
                             });
                     } else {
                         ui.vertical_centered(|ui| {
-                            ui.label("⚠️ Cannot find error information for this execution");
+                            ui.label("⚠ Cannot find error information for this execution");
                         });
                     }
                 });

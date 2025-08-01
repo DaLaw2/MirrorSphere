@@ -1,13 +1,14 @@
+use crate::core::app_config::AppConfig;
 use crate::core::backup_engine::BackupEngine;
 use crate::core::event_bus::EventBus;
 use crate::core::schedule_manager::ScheduleManager;
 use crate::model::error::Error;
 use crate::model::error::misc::MiscError;
 use crate::ui::main_page::MainPage;
+use crate::utils::assets::Assets;
+use crate::utils::font;
 use eframe::egui;
 use std::sync::Arc;
-use crate::core::app_config::AppConfig;
-use crate::utils::assets::Assets;
 
 pub struct GuiManager {
     app_config: Arc<AppConfig>,
@@ -50,7 +51,8 @@ impl GuiManager {
         eframe::run_native(
             "MirrorSphere",
             options,
-            Box::new(|_| {
+            Box::new(|cc| {
+                font::setup_system_fonts(&cc.egui_ctx);
                 Ok(Box::new(MainPage::new(
                     config,
                     event_bus,
