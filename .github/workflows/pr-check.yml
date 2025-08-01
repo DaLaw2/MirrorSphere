@@ -15,7 +15,7 @@ jobs:
       - name: Install system dependencies
         run: |
           apt-get update
-          apt-get install -y curl build-essential mingw-w64 git
+          apt-get install -y curl build-essential mingw-w64 git libfontconfig1-dev pkg-config
 
       - name: Checkout code
         uses: actions/checkout@v4
