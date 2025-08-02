@@ -15,7 +15,7 @@ use dashmap::DashMap;
 use futures::future::join_all;
 use macros::log;
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -370,30 +370,30 @@ impl Worker {
     async fn process_entry(
         &self,
         execution: &BackupExecution,
-        current_path: &PathBuf,
+        current_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
         let source_root = &execution.source_path;
         let destination_root = &execution.destination_path;
 
-        let source_path = current_path.clone();
-        let destination_path =
-            self.calculate_destination_path(&source_path, &source_root, &destination_root)?;
+        let source_path = current_path;
+        let destination_path = self.calculate_destination_path(source_path, source_root, destination_root)?;
+        let destination_path = destination_path.as_path();
 
-        let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
+        let is_symlink = io_manager.is_symlink(source_path).await.unwrap_or(false);
 
         if is_symlink {
-            self.process_symlink(execution, &source_path, &destination_path)
+            self.process_symlink(execution, source_path, destination_path)
                 .await?;
             return Ok(None);
         }
 
         if source_path.is_dir() {
-            self.backup_directory(execution, &source_path, &destination_path)
+            self.backup_directory(execution, source_path, destination_path)
                 .await
         } else {
-            self.backup_file(execution, &source_path, &destination_path)
+            self.backup_file(execution, source_path, destination_path)
                 .await
         }
     }
@@ -401,13 +401,13 @@ impl Worker {
     async fn backup_directory(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
         if !destination_path.exists() {
-            io_manager.create_directory(&destination_path).await?;
+            io_manager.create_directory(destination_path).await?;
         }
 
         io_manager
@@ -420,14 +420,14 @@ impl Worker {
                 .await?;
         }
 
-        Ok(Some(source_path.clone()))
+        Ok(Some(source_path.to_path_buf()))
     }
 
     async fn backup_file(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
@@ -457,8 +457,8 @@ impl Worker {
     async fn process_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         if execution.options.follow_symlinks {
             self.follow_symlink(execution, source_path, destination_path)
@@ -472,15 +472,15 @@ impl Worker {
     async fn follow_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
 
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
 
-        queue.push_back((source_path.clone(), destination_path.clone()));
+        queue.push_back((source_path.to_path_buf(), destination_path.to_path_buf()));
 
         while let Some((current_source, current_dest)) = queue.pop_front() {
             let is_symlink = io_manager
@@ -493,7 +493,7 @@ impl Worker {
                     Err(_) => continue,
                 }
             } else {
-                current_source.clone()
+                current_source.to_path_buf()
             };
 
             if visited.contains(&canonical_path) {
@@ -529,8 +529,8 @@ impl Worker {
     async fn copy_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
 
@@ -554,8 +554,8 @@ impl Worker {
     #[inline(always)]
     async fn full_backup(
         &self,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
         io_manager.copy_file(source_path, destination_path).await
@@ -563,8 +563,8 @@ impl Worker {
 
     async fn incremental_backup(
         &self,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
         comparison_mode: ComparisonMode,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
@@ -627,9 +627,9 @@ impl Worker {
 
     fn calculate_destination_path(
         &self,
-        source_path: &PathBuf,
-        source_root: &PathBuf,
-        destination_root: &PathBuf,
+        source_path: &Path,
+        source_root: &Path,
+        destination_root: &Path,
     ) -> Result<PathBuf, Error> {
         let relative_path = source_path
             .strip_prefix(source_root)

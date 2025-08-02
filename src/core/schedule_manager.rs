@@ -105,7 +105,7 @@ impl ScheduleManager {
                     let execution = schedule.to_execution();
                     event_bus.publish(ExecutionAddRequest { execution });
                     self.update_next_run_time(schedule);
-                    database_manager.modify_backup_schedule(&schedule).await?;
+                    database_manager.modify_backup_schedule(schedule).await?;
                 }
             }
         }

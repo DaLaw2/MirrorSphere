@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Datelike, Timelike};
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::Path;
 use std::ptr;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -44,11 +44,7 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn copy_symlink(
-        &self,
-        source_link: &PathBuf,
-        destination_link: &PathBuf,
-    ) -> Result<(), Error> {
+    async fn copy_symlink(&self, source_link: &Path, destination_link: &Path) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -57,7 +53,7 @@ impl FileSystemTrait for FileSystem {
 
         let link_target = tokio::fs::read_link(source_link)
             .await
-            .map_err(|err| IOError::ReadSymbolLinkFailed(source_link.clone(), err))?;
+            .map_err(|err| IOError::ReadSymbolLinkFailed(source_link, err))?;
 
         if link_target.is_dir() {
             tokio::fs::symlink_dir(&link_target, destination_link).await
@@ -69,7 +65,7 @@ impl FileSystemTrait for FileSystem {
         Ok(())
     }
 
-    async fn get_attributes(&self, path: &PathBuf) -> Result<Attributes, Error> {
+    async fn get_attributes(&self, path: &Path) -> Result<Attributes, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -78,19 +74,19 @@ impl FileSystemTrait for FileSystem {
 
         let metadata = tokio::fs::metadata(path)
             .await
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
 
         let attributes = metadata.file_attributes();
 
         let creation_time = metadata
             .created()
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
         let last_access_time = metadata
             .accessed()
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
         let change_time = metadata
             .modified()
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
 
         let attributes = Attributes {
             attributes,
@@ -102,7 +98,7 @@ impl FileSystemTrait for FileSystem {
         Ok(attributes)
     }
 
-    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> Result<(), Error> {
+    async fn set_attributes(&self, path: &Path, attributes: Attributes) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -113,7 +109,7 @@ impl FileSystemTrait for FileSystem {
 
         let file_attributes = attributes.attributes;
 
-        let path = path.clone();
+        let path = path.to_path_buf();
         spawn_blocking(move || unsafe {
             SetFileAttributesW(
                 PCWSTR(file_path_wild.as_ptr()),
@@ -155,10 +151,10 @@ impl FileSystemTrait for FileSystem {
         Ok(())
     }
 
-    async fn get_permission(&self, path: &PathBuf) -> Result<Permissions, Error> {
+    async fn get_permission(&self, path: &Path) -> Result<Permissions, Error> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-        let path = path.clone();
+        let path = path.to_path_buf();
         let permission = spawn_blocking(move || unsafe {
             let security_info = OWNER_SECURITY_INFORMATION
                 | GROUP_SECURITY_INFORMATION
@@ -182,7 +178,10 @@ impl FileSystemTrait for FileSystem {
             );
 
             if result.is_err() {
-                Err(IOError::GetMetadataFailed(path.clone(), format!("{result:?}")))?;
+                Err(IOError::GetMetadataFailed(
+                    path.clone(),
+                    format!("{result:?}"),
+                ))?;
             }
 
             Ok::<Permissions, Error>(Permissions {
@@ -199,7 +198,7 @@ impl FileSystemTrait for FileSystem {
         Ok(permission)
     }
 
-    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> Result<(), Error> {
+    async fn set_permission(&self, path: &Path, permissions: Permissions) -> Result<(), Error> {
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
         let security_info = BACKUP_SECURITY_INFORMATION;
@@ -221,7 +220,7 @@ impl FileSystemTrait for FileSystem {
             );
 
             if result.is_err() {
-                Err(IOError::SetMetadataFailed(path.clone(), format!("{result:?}")))?;
+                Err(IOError::SetMetadataFailed(path, format!("{result:?}")))?;
             }
         }
 
