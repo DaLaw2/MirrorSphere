@@ -52,7 +52,7 @@ impl BackupEngine {
         let keys: Vec<Uuid> = self
             .running_executions
             .iter()
-            .map(|pair| pair.key().clone())
+            .map(|pair| *pair.key())
             .collect();
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_executions.remove(&uuid) {
@@ -431,13 +431,6 @@ impl Worker {
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
-        #[allow(unused_variables)]
-        let mut file_lock = None;
-        #[allow(unused_assignments)]
-        if execution.options.lock_source {
-            file_lock = Some(io_manager.acquire_file_lock(source_path).await?);
-        }
-
         match execution.backup_type {
             BackupType::Full => self.full_backup(source_path, destination_path).await?,
             BackupType::Incremental => {
@@ -456,8 +449,6 @@ impl Worker {
                 .copy_permission(source_path, destination_path)
                 .await?;
         }
-
-        drop(file_lock);
 
         Ok(None)
     }

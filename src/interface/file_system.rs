@@ -4,7 +4,6 @@ use crate::model::error::Error;
 use crate::model::backup::backup_execution::HashType;
 use crate::platform::attributes::*;
 use crate::utils::file_hash::*;
-use crate::utils::file_lock::FileLock;
 use async_trait::async_trait;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -141,18 +140,6 @@ pub trait FileSystemTrait {
         let source_permissions = self.get_permission(source).await?;
         self.set_permission(destination, source_permissions).await?;
         Ok(())
-    }
-
-    async fn acquire_file_lock(&self, path: &PathBuf) -> Result<FileLock, Error> {
-        let semaphore = self.semaphore();
-        let _permit = semaphore
-            .acquire_owned()
-            .await
-            .map_err(IOError::SemaphoreClosed)?;
-
-        let file_lock = FileLock::new(path).await?;
-
-        Ok(file_lock)
     }
 
     async fn calculate_hash(&self, path: &PathBuf, hash_type: HashType) -> Result<Vec<u8>, Error> {

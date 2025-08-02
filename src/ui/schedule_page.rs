@@ -29,7 +29,6 @@ pub struct SchedulePage {
     new_schedule_destination: String,
     new_schedule_interval: ScheduleInterval,
     new_schedule_mirror: bool,
-    new_schedule_lock_source: bool,
     new_schedule_backup_permission: bool,
     new_schedule_follow_symlinks: bool,
     show_add_schedule_dialog: bool,
@@ -53,7 +52,6 @@ impl SchedulePage {
             new_schedule_destination: String::new(),
             new_schedule_interval: ScheduleInterval::Daily,
             new_schedule_mirror: false,
-            new_schedule_lock_source: false,
             new_schedule_backup_permission: false,
             new_schedule_follow_symlinks: false,
             show_add_schedule_dialog: false,
@@ -321,7 +319,6 @@ impl SchedulePage {
                         &mut self.new_schedule_mirror,
                         "Mirror Mode (Delete extra files in destination)",
                     );
-                    ui.checkbox(&mut self.new_schedule_lock_source, "Lock Source Files");
                     ui.checkbox(
                         &mut self.new_schedule_backup_permission,
                         "Backup File Permissions",
@@ -345,7 +342,6 @@ impl SchedulePage {
                                 comparison_mode: None,
                                 options: BackupOptions {
                                     mirror: self.new_schedule_mirror,
-                                    lock_source: self.new_schedule_lock_source,
                                     backup_permission: self.new_schedule_backup_permission,
                                     follow_symlinks: self.new_schedule_follow_symlinks,
                                 },
@@ -460,9 +456,6 @@ impl SchedulePage {
                             if schedule.options.mirror {
                                 ui.label("✅ Mirror Mode");
                             }
-                            if schedule.options.lock_source {
-                                ui.label("✅ Lock Source");
-                            }
                             if schedule.options.backup_permission {
                                 ui.label("✅ Backup Permissions");
                             }
@@ -500,7 +493,6 @@ impl SchedulePage {
         self.new_schedule_destination.clear();
         self.new_schedule_interval = ScheduleInterval::Daily;
         self.new_schedule_mirror = false;
-        self.new_schedule_lock_source = false;
         self.new_schedule_backup_permission = false;
         self.new_schedule_follow_symlinks = false;
         self.show_add_schedule_dialog = false;

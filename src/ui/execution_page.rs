@@ -56,7 +56,6 @@ pub struct ExecutionPage {
     new_task_source: String,
     new_task_destination: String,
     new_task_mirror: bool,
-    new_task_lock_source: bool,
     new_task_backup_permission: bool,
     new_task_follow_symlinks: bool,
     show_add_task_dialog: bool,
@@ -91,7 +90,6 @@ impl ExecutionPage {
             new_task_source: String::new(),
             new_task_destination: String::new(),
             new_task_mirror: false,
-            new_task_lock_source: false,
             new_task_backup_permission: false,
             new_task_follow_symlinks: false,
             show_add_task_dialog: false,
@@ -392,7 +390,7 @@ impl ExecutionPage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Source Path:");
-                            ui.text_edit_singleline(&mut self.new_task_source);
+                            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_source));
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Source);
                                 self.file_dialog.pick_directory();
@@ -400,7 +398,7 @@ impl ExecutionPage {
                             ui.end_row();
 
                             ui.label("Destination Path:");
-                            ui.text_edit_singleline(&mut self.new_task_destination);
+                            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_destination));
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Destination);
                                 self.file_dialog.pick_directory();
@@ -416,7 +414,6 @@ impl ExecutionPage {
                         &mut self.new_task_mirror,
                         "Mirror Mode (Delete extra files in destination)",
                     );
-                    ui.checkbox(&mut self.new_task_lock_source, "Lock Source Files");
                     ui.checkbox(
                         &mut self.new_task_backup_permission,
                         "Backup File Permissions",
@@ -438,7 +435,6 @@ impl ExecutionPage {
                                 comparison_mode: None,
                                 options: BackupOptions {
                                     mirror: self.new_task_mirror,
-                                    lock_source: self.new_task_lock_source,
                                     backup_permission: self.new_task_backup_permission,
                                     follow_symlinks: self.new_task_follow_symlinks,
                                 },
@@ -559,7 +555,6 @@ impl ExecutionPage {
         self.new_task_source.clear();
         self.new_task_destination.clear();
         self.new_task_mirror = false;
-        self.new_task_lock_source = false;
         self.new_task_backup_permission = false;
         self.new_task_follow_symlinks = false;
         self.show_add_task_dialog = false;
