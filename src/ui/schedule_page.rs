@@ -3,6 +3,7 @@ use crate::core::schedule_manager::ScheduleManager;
 use crate::model::backup::backup_execution::*;
 use crate::model::backup::backup_schedule::*;
 use crate::model::error::task::TaskError;
+use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
 use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
@@ -11,12 +12,6 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
-
-#[derive(Debug, Clone, PartialEq)]
-enum FolderSelectionMode {
-    Source,
-    Destination,
-}
 
 pub struct SchedulePage {
     app_config: Arc<AppConfig>,
@@ -31,6 +26,8 @@ pub struct SchedulePage {
     new_schedule_mirror: bool,
     new_schedule_backup_permission: bool,
     new_schedule_follow_symlinks: bool,
+    new_schedule_comparison_mode: ComparisonModeSelection,
+    new_schedule_hash_type: HashType,
     show_add_schedule_dialog: bool,
 
     file_dialog: FileDialog,
@@ -54,6 +51,8 @@ impl SchedulePage {
             new_schedule_mirror: false,
             new_schedule_backup_permission: false,
             new_schedule_follow_symlinks: false,
+            new_schedule_comparison_mode: ComparisonModeSelection::Standard,
+            new_schedule_hash_type: HashType::BLAKE3,
             show_add_schedule_dialog: false,
             file_dialog: FileDialog::new(),
             folder_selection_mode: None,
@@ -163,16 +162,26 @@ impl SchedulePage {
                         ui.label(format!("📅 {}", schedule.name));
                         ui.label(format!("🗂️ {}", schedule.source_path.display()));
                         ui.label(format!("📁 {}", schedule.destination_path.display()));
-                        ui.label(format!("⏱️ {:?}", schedule.interval));
+                        ui.label(format!("⏱ {:?}", schedule.interval));
 
                         ui.horizontal(|ui| {
                             let (color, symbol, status_text) = match schedule.state {
                                 ScheduleState::Active => (egui::Color32::GREEN, "✅", "Active"),
-                                ScheduleState::Paused => (egui::Color32::YELLOW, "⏸️", "Paused"),
+                                ScheduleState::Paused => (egui::Color32::YELLOW, "⏸", "Paused"),
                                 ScheduleState::Disabled => (egui::Color32::GRAY, "❌", "Disabled"),
                             };
 
                             ui.colored_label(color, format!("{symbol} {status_text}"));
+
+                            if let Some(comparison_mode) = &schedule.comparison_mode {
+                                ui.separator();
+                                let mode_text = match comparison_mode {
+                                    ComparisonMode::Standard => "⚡ Standard",
+                                    ComparisonMode::Advanced => "🔧 Advanced",
+                                    ComparisonMode::Thorough(_) => "🔍 Thorough",
+                                };
+                                ui.label(mode_text);
+                            }
 
                             if let Some(last_run) = schedule.last_run_time {
                                 ui.separator();
@@ -201,7 +210,7 @@ impl SchedulePage {
 
                         match schedule.state {
                             ScheduleState::Active => {
-                                if ui.button("⏸️ Pause").clicked() {
+                                if ui.button("⏸ Pause").clicked() {
                                     if let Err(err) = block_on(
                                         self.schedule_manager.pause_schedule(schedule.uuid),
                                     ) {
@@ -210,7 +219,7 @@ impl SchedulePage {
                                 }
                             }
                             ScheduleState::Paused => {
-                                if ui.button("▶️ Resume").clicked() {
+                                if ui.button("▶ Resume").clicked() {
                                     if let Err(err) = block_on(
                                         self.schedule_manager.active_schedule(schedule.uuid),
                                     ) {
@@ -219,7 +228,7 @@ impl SchedulePage {
                                 }
                             }
                             ScheduleState::Disabled => {
-                                if ui.button("▶️ Enable").clicked() {
+                                if ui.button("▶ Enable").clicked() {
                                     if let Err(err) = block_on(
                                         self.schedule_manager.active_schedule(schedule.uuid),
                                     ) {
@@ -239,7 +248,7 @@ impl SchedulePage {
                             }
                         }
 
-                        if ui.button("🗑️").clicked() {
+                        if ui.button("🗑").clicked() {
                             if let Err(err) =
                                 block_on(self.schedule_manager.remove_schedule(schedule.uuid))
                             {
@@ -262,8 +271,24 @@ impl SchedulePage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Schedule Name:");
-                            ui.text_edit_singleline(&mut self.new_schedule_name);
+                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_name));
                             ui.label("");
+                            ui.end_row();
+
+                            ui.label("Source Path:");
+                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_source));
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Source);
+                                self.file_dialog.pick_directory();
+                            }
+                            ui.end_row();
+
+                            ui.label("Destination Path:");
+                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_destination));
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Destination);
+                                self.file_dialog.pick_directory();
+                            }
                             ui.end_row();
 
                             ui.label("Interval:");
@@ -294,26 +319,36 @@ impl SchedulePage {
                             ui.label("");
                             ui.end_row();
 
-                            ui.label("Source Path:");
-                            ui.text_edit_singleline(&mut self.new_schedule_source);
-                            if ui.button("📁 Browse").clicked() {
-                                self.folder_selection_mode = Some(FolderSelectionMode::Source);
-                                self.file_dialog.pick_directory();
-                            }
-                            ui.end_row();
-
-                            ui.label("Destination Path:");
-                            ui.text_edit_singleline(&mut self.new_schedule_destination);
-                            if ui.button("📁 Browse").clicked() {
-                                self.folder_selection_mode = Some(FolderSelectionMode::Destination);
-                                self.file_dialog.pick_directory();
-                            }
-                            ui.end_row();
                         });
 
                     ui.separator();
 
-                    ui.label("Options:");
+                    ui.label("File Comparison Mode:");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Standard, "⚡ Standard (Size + Time)");
+                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Advanced, "🔧 Advanced (+ Attributes)");
+                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Thorough, "🔍 Thorough (+ Checksum)");
+                    });
+
+                    if self.new_schedule_comparison_mode == ComparisonModeSelection::Thorough {
+                        ui.horizontal(|ui| {
+                            ui.label("  Hash Algorithm:");
+                            egui::ComboBox::from_id_salt("schedule_hash_type")
+                                .selected_text(format!("{:?}", self.new_schedule_hash_type))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE3, "BLAKE3 (Recommended)");
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::SHA256, "SHA256");
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::SHA3, "SHA3");
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE2B, "BLAKE2B");
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE2S, "BLAKE2S");
+                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::MD5, "MD5 (Legacy)");
+                                });
+                        });
+                    }
+
+                    ui.separator();
+
+                    ui.label("Additional Options:");
                     ui.checkbox(&mut self.new_schedule_follow_symlinks, "Follow Symlinks");
                     ui.checkbox(
                         &mut self.new_schedule_mirror,
@@ -332,6 +367,12 @@ impl SchedulePage {
                             && !self.new_schedule_source.is_empty()
                             && !self.new_schedule_destination.is_empty()
                         {
+                            let comparison_mode = match self.new_schedule_comparison_mode {
+                                ComparisonModeSelection::Standard => Some(ComparisonMode::Standard),
+                                ComparisonModeSelection::Advanced => Some(ComparisonMode::Advanced),
+                                ComparisonModeSelection::Thorough => Some(ComparisonMode::Thorough(self.new_schedule_hash_type)),
+                            };
+
                             let schedule = BackupSchedule {
                                 uuid: Uuid::new_v4(),
                                 name: self.new_schedule_name.clone(),
@@ -339,7 +380,7 @@ impl SchedulePage {
                                 source_path: PathBuf::from(&self.new_schedule_source),
                                 destination_path: PathBuf::from(&self.new_schedule_destination),
                                 backup_type: BackupType::Full,
-                                comparison_mode: None,
+                                comparison_mode,
                                 options: BackupOptions {
                                     mirror: self.new_schedule_mirror,
                                     backup_permission: self.new_schedule_backup_permission,
@@ -420,6 +461,19 @@ impl SchedulePage {
                                 ui.label(format!("{:?}", schedule.backup_type));
                                 ui.end_row();
 
+                                if let Some(comparison_mode) = &schedule.comparison_mode {
+                                    ui.label("Comparison Mode:");
+                                    let mode_text = match comparison_mode {
+                                        ComparisonMode::Standard => "Standard (Size + Time)",
+                                        ComparisonMode::Advanced => "Advanced (+ Attributes)",
+                                        ComparisonMode::Thorough(hash_type) => {
+                                            &format!("Thorough (+ Checksum: {hash_type:?})")
+                                        },
+                                    };
+                                    ui.label(mode_text);
+                                    ui.end_row();
+                                }
+
                                 ui.label("Interval:");
                                 ui.label(format!("{:?}", schedule.interval));
                                 ui.end_row();
@@ -468,13 +522,9 @@ impl SchedulePage {
 
                         ui.horizontal(|ui| {
                             if ui.button("Run Now").clicked() {
-                                // 這裡可以觸發立即執行排程
-                                // 可能需要新增一個 API 方法來立即執行排程
                                 println!("Would run schedule {} now", schedule.name);
                             }
-
                             if ui.button("Edit").clicked() {
-                                // 這裡可以開啟編輯對話框
                                 println!("Would edit schedule {}", schedule.name);
                             }
                         });
@@ -495,6 +545,8 @@ impl SchedulePage {
         self.new_schedule_mirror = false;
         self.new_schedule_backup_permission = false;
         self.new_schedule_follow_symlinks = false;
+        self.new_schedule_comparison_mode = ComparisonModeSelection::Standard;
+        self.new_schedule_hash_type = HashType::BLAKE3;
         self.show_add_schedule_dialog = false;
     }
 }

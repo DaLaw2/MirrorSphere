@@ -5,9 +5,10 @@ use crate::core::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
 use crate::interface::service_unit::ServiceUnit;
 use crate::model::backup::backup_execution::*;
-use crate::model::error::Error;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
+use crate::model::error::Error;
+use crate::model::event::error::BackupError;
 use crate::model::event::execution::*;
 use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
@@ -157,12 +158,14 @@ impl BackupEngine {
 
     fn to_execution_runner(&self) -> ExecutionRunner {
         let config = self.app_config.clone();
+        let event_bus = self.event_bus.clone();
         let io_manager = self.io_manager.clone();
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
         let running_executions = self.running_executions.clone();
         ExecutionRunner::new(
             config,
+            event_bus,
             io_manager,
             progress_tracker,
             executions,
@@ -173,6 +176,7 @@ impl BackupEngine {
 
 struct ExecutionRunner {
     app_config: Arc<AppConfig>,
+    event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
@@ -182,6 +186,7 @@ struct ExecutionRunner {
 impl ExecutionRunner {
     pub fn new(
         app_config: Arc<AppConfig>,
+        event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
         executions: Arc<DashMap<Uuid, BackupExecution>>,
@@ -189,6 +194,7 @@ impl ExecutionRunner {
     ) -> Self {
         Self {
             app_config,
+            event_bus,
             io_manager,
             progress_tracker,
             executions,
@@ -251,7 +257,11 @@ impl ExecutionRunner {
                 match result {
                     Ok((worker_next_level, worker_errors)) => {
                         next_level.extend(worker_next_level);
-                        errors.extend(worker_errors);
+                        if !worker_errors.is_empty() {
+                            errors.extend(worker_errors.clone());
+                            self.event_bus
+                                .publish(BackupError::new(execution.uuid, worker_errors));
+                        }
                     }
                     Err(err) => log!(SystemError::ThreadPanic(err)),
                 }
@@ -261,7 +271,8 @@ impl ExecutionRunner {
                 current_level.extend(next_level);
                 if let Err(err) = progress_tracker
                     .save_execution(execution.uuid, current_level, errors)
-                    .await {
+                    .await
+                {
                     error!("{}", err);
                 }
                 break;
@@ -297,9 +308,7 @@ struct Worker {
 
 impl Worker {
     pub fn new(io_manager: Arc<IOManager>) -> Self {
-        Self {
-            io_manager
-        }
+        Self { io_manager }
     }
 
     async fn run(
@@ -552,11 +561,7 @@ impl Worker {
     }
 
     #[inline(always)]
-    async fn full_backup(
-        &self,
-        source_path: &Path,
-        destination_path: &Path,
-    ) -> Result<(), Error> {
+    async fn full_backup(&self, source_path: &Path, destination_path: &Path) -> Result<(), Error> {
         let io_manager = &self.io_manager;
         io_manager.copy_file(source_path, destination_path).await
     }

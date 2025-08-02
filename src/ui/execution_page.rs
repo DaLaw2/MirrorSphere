@@ -16,6 +16,7 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 use tracing::error;
 use uuid::Uuid;
+use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 
 #[derive(Debug, Clone)]
 struct ExecutionDisplay {
@@ -36,12 +37,6 @@ impl From<BackupExecution> for ExecutionDisplay {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-enum FolderSelectionMode {
-    Source,
-    Destination,
-}
-
 pub struct ExecutionPage {
     app_config: Arc<AppConfig>,
     backup_engine: Arc<BackupEngine>,
@@ -58,6 +53,8 @@ pub struct ExecutionPage {
     new_task_mirror: bool,
     new_task_backup_permission: bool,
     new_task_follow_symlinks: bool,
+    new_task_comparison_mode: ComparisonModeSelection,
+    new_task_hash_type: HashType,
     show_add_task_dialog: bool,
 
     file_dialog: FileDialog,
@@ -92,6 +89,8 @@ impl ExecutionPage {
             new_task_mirror: false,
             new_task_backup_permission: false,
             new_task_follow_symlinks: false,
+            new_task_comparison_mode: ComparisonModeSelection::Standard,
+            new_task_hash_type: HashType::BLAKE3,
             show_add_task_dialog: false,
             file_dialog: FileDialog::new(),
             folder_selection_mode: None,
@@ -118,9 +117,9 @@ impl ExecutionPage {
 
         while let Ok(event) = self.backup_error_events.try_recv() {
             match self.error_messages.get_mut(&event.task_id) {
-                Some(mut errors) => errors.push(event.error),
+                Some(mut errors) => errors.extend(event.errors),
                 None => {
-                    self.error_messages.insert(event.task_id, vec![event.error]);
+                    self.error_messages.insert(event.task_id, event.errors);
                 }
             }
         }
@@ -390,7 +389,7 @@ impl ExecutionPage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Source Path:");
-                            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_source));
+                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_source));
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Source);
                                 self.file_dialog.pick_directory();
@@ -398,7 +397,7 @@ impl ExecutionPage {
                             ui.end_row();
 
                             ui.label("Destination Path:");
-                            ui.add_sized([150.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_destination));
+                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_destination));
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Destination);
                                 self.file_dialog.pick_directory();
@@ -408,7 +407,32 @@ impl ExecutionPage {
 
                     ui.separator();
 
-                    ui.label("Options:");
+                    ui.label("File Comparison Mode:");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Standard, "⚡ Standard (Size + Time)");
+                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Advanced, "🔧 Advanced (+ Attributes)");
+                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Thorough, "🔍 Thorough (+ Checksum)");
+                    });
+
+                    if self.new_task_comparison_mode == ComparisonModeSelection::Thorough {
+                        ui.horizontal(|ui| {
+                            ui.label("  Hash Algorithm:");
+                            egui::ComboBox::from_id_salt("hash_type")
+                                .selected_text(format!("{:?}", self.new_task_hash_type))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE3, "BLAKE3 (Recommended)");
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::SHA256, "SHA256");
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::SHA3, "SHA3");
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE2B, "BLAKE2B");
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE2S, "BLAKE2S");
+                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::MD5, "MD5 (Legacy)");
+                                });
+                        });
+                    }
+
+                    ui.separator();
+
+                    ui.label("Additional Options:");
                     ui.checkbox(&mut self.new_task_follow_symlinks, "Follow Symlinks");
                     ui.checkbox(
                         &mut self.new_task_mirror,
@@ -426,13 +450,19 @@ impl ExecutionPage {
                             && !self.new_task_source.is_empty()
                             && !self.new_task_destination.is_empty()
                         {
+                            let comparison_mode = match self.new_task_comparison_mode {
+                                ComparisonModeSelection::Standard => Some(ComparisonMode::Standard),
+                                ComparisonModeSelection::Advanced => Some(ComparisonMode::Advanced),
+                                ComparisonModeSelection::Thorough => Some(ComparisonMode::Thorough(self.new_task_hash_type)),
+                            };
+
                             let execution = BackupExecution {
                                 uuid: Uuid::new_v4(),
                                 state: BackupState::Pending,
                                 source_path: PathBuf::from(&self.new_task_source),
                                 destination_path: PathBuf::from(&self.new_task_destination),
                                 backup_type: BackupType::Full,
-                                comparison_mode: None,
+                                comparison_mode,
                                 options: BackupOptions {
                                     mirror: self.new_task_mirror,
                                     backup_permission: self.new_task_backup_permission,
@@ -557,6 +587,8 @@ impl ExecutionPage {
         self.new_task_mirror = false;
         self.new_task_backup_permission = false;
         self.new_task_follow_symlinks = false;
+        self.new_task_comparison_mode = ComparisonModeSelection::Standard;
+        self.new_task_hash_type = HashType::BLAKE3;
         self.show_add_task_dialog = false;
     }
 }

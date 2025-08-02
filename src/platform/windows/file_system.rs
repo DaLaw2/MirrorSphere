@@ -20,7 +20,7 @@ use windows::Win32::Security::Authorization::{
     GetNamedSecurityInfoW, SE_FILE_OBJECT, SetNamedSecurityInfoW,
 };
 use windows::Win32::Security::{
-    ACL, BACKUP_SECURITY_INFORMATION, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
+    ACL, DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION,
     OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SACL_SECURITY_INFORMATION,
 };
 use windows::Win32::Storage::FileSystem::{
@@ -152,6 +152,12 @@ impl FileSystemTrait for FileSystem {
     }
 
     async fn get_permission(&self, path: &Path) -> Result<Permissions, Error> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(IOError::SemaphoreClosed)?;
+
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
         let path = path.to_path_buf();
@@ -199,9 +205,18 @@ impl FileSystemTrait for FileSystem {
     }
 
     async fn set_permission(&self, path: &Path, permissions: Permissions) -> Result<(), Error> {
+        let semaphore = self.semaphore();
+        let _permit = semaphore
+            .acquire_owned()
+            .await
+            .map_err(IOError::SemaphoreClosed)?;
+
         let file_path_wild: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
 
-        let security_info = BACKUP_SECURITY_INFORMATION;
+        let security_info = OWNER_SECURITY_INFORMATION
+            | GROUP_SECURITY_INFORMATION
+            | DACL_SECURITY_INFORMATION
+            | SACL_SECURITY_INFORMATION;
         let owner = permissions.owner;
         let primary_group = permissions.primary_group;
         let dacl = permissions.dacl;
