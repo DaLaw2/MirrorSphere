@@ -1,6 +1,6 @@
-use crate::core::backup_engine::BackupEngine;
+use crate::core::backup::backup_engine::BackupEngine;
 use crate::core::event_bus::EventBus;
-use crate::core::schedule_manager::ScheduleManager;
+use crate::core::schedule::schedule_manager::ScheduleManager;
 use crate::ui::execution_page::ExecutionPage;
 use crate::ui::schedule_page::SchedulePage;
 use crate::model::log::system::SystemLog;
@@ -8,7 +8,7 @@ use eframe::egui;
 use eframe::{App, Frame};
 use macros::log;
 use std::sync::Arc;
-use crate::core::app_config::AppConfig;
+use crate::core::infrastructure::app_config::AppConfig;
 
 #[derive(Debug, Clone, PartialEq)]
 enum PageType {

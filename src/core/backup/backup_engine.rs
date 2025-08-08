@@ -1,7 +1,7 @@
-use crate::core::app_config::AppConfig;
+use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::event_bus::EventBus;
-use crate::core::io_manager::IOManager;
-use crate::core::progress_tracker::ProgressTracker;
+use crate::core::infrastructure::io_manager::IOManager;
+use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
 use crate::interface::service_unit::ServiceUnit;
 use crate::model::backup::backup_execution::*;

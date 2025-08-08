@@ -20,7 +20,7 @@ impl AppConfig {
 
     fn load_config_file() -> Result<Config, Error> {
         let toml_string =
-            fs::read_to_string("./config.toml").map_err(SystemError::ConfigNotFound)?;
+            fs::read_to_string("../../../config.toml").map_err(SystemError::ConfigNotFound)?;
         let config = toml::from_str::<ConfigTable>(&toml_string)
             .map_err(SystemError::InvalidConfig)?
             .config;

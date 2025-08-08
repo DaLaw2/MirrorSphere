@@ -1,5 +1,5 @@
-use crate::core::app_config::AppConfig;
-use crate::core::schedule_manager::ScheduleManager;
+use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::schedule::schedule_manager::ScheduleManager;
 use crate::model::backup::backup_execution::*;
 use crate::model::backup::backup_schedule::*;
 use crate::model::error::task::TaskError;

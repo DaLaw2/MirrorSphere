@@ -1,7 +1,7 @@
-use crate::core::app_config::AppConfig;
-use crate::core::backup_engine::BackupEngine;
+use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::backup::backup_engine::BackupEngine;
 use crate::core::event_bus::EventBus;
-use crate::core::schedule_manager::ScheduleManager;
+use crate::core::schedule::schedule_manager::ScheduleManager;
 use crate::model::error::Error;
 use crate::model::error::misc::MiscError;
 use crate::ui::main_page::MainPage;
@@ -42,7 +42,7 @@ impl GuiManager {
 
         let options = eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
-                .with_inner_size([800.0, 450.0])
+                .with_inner_size([960.0, 540.0])
                 .with_title("MirrorSphere")
                 .with_icon(icon_data),
             ..Default::default()

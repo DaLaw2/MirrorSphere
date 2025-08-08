@@ -1,4 +1,4 @@
-use crate::core::database_manager::DatabaseManager;
+use crate::core::infrastructure::database_manager::DatabaseManager;
 use crate::model::backup::backup_schedule::BackupSchedule;
 use crate::model::error::Error;
 use crate::model::error::database::DatabaseError;
