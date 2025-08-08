@@ -1,7 +1,7 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::schedule::schedule_manager::ScheduleManager;
-use crate::model::backup::backup_execution::*;
-use crate::model::backup::backup_schedule::*;
+use crate::model::core::backup::backup_execution::*;
+use crate::model::core::schedule::backup_schedule::*;
 use crate::model::error::task::TaskError;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;

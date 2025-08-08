@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 pub struct GuiManager {
     app_config: Arc<AppConfig>,
-    event_bus: Arc<EventBus>,
     backup_engine: Arc<BackupEngine>,
     schedule_manager: Arc<ScheduleManager>,
 }
@@ -19,7 +18,6 @@ pub struct GuiManager {
 impl GuiManager {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
         backup_engine: Arc<BackupEngine>,
         schedule_manager: Arc<ScheduleManager>,
     ) -> Self {

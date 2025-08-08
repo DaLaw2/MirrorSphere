@@ -38,7 +38,6 @@ impl System {
         log!(SystemLog::Initializing);
         Self::elevate_privileges()?;
         let app_config = Arc::new(AppConfig::new()?);
-        let event_bus = Arc::new(EventBus::new());
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let _database_lock = DatabaseLock::acquire().await?;
         let database_manager = Arc::new(DatabaseManager::new().await?);

@@ -1,5 +1,5 @@
 use crate::interface::event::Event;
-use crate::model::backup::backup_execution::BackupExecution;
+use crate::model::core::backup::backup_execution::BackupExecution;
 use uuid::Uuid;
 
 #[derive(Clone, Debug)]

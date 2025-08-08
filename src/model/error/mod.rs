@@ -1,3 +1,4 @@
+pub mod actor;
 pub mod database;
 pub mod event;
 pub mod io;
@@ -5,6 +6,7 @@ pub mod misc;
 pub mod system;
 pub mod task;
 
+use crate::model::error::actor::ActorError;
 use crate::model::error::database::DatabaseError;
 use crate::model::error::event::EventError;
 use crate::model::error::io::IOError;
@@ -15,6 +17,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error, Serialize, Deserialize, Clone)]
 pub enum Error {
+    #[error("{0}")]
+    Actor(ActorError),
     #[error("{0}")]
     Database(DatabaseError),
     #[error("{0}")]
@@ -27,6 +31,12 @@ pub enum Error {
     System(SystemError),
     #[error("{0}")]
     Task(TaskError),
+}
+
+impl From<ActorError> for Error {
+    fn from(error: ActorError) -> Self {
+        Self::Actor(error)
+    }
 }
 
 impl From<DatabaseError> for Error {

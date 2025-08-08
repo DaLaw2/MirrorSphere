@@ -1,6 +1,6 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::backup::backup_engine::BackupEngine;
-use crate::model::backup::backup_execution::*;
+use crate::model::core::backup::backup_execution::*;
 use crate::model::error::Error;
 use crate::model::event::error::BackupError;
 use crate::model::event::execution::*;
@@ -68,7 +68,6 @@ pub struct ExecutionPage {
 impl ExecutionPage {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
         backup_engine: Arc<BackupEngine>,
     ) -> Self {
         let folder_processing_events = event_bus.subscribe::<FolderProcessing>();

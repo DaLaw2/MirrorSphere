@@ -1,4 +1,4 @@
-use crate::model::backup::backup_execution::*;
+use crate::model::core::backup::backup_execution::*;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;

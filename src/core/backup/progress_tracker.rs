@@ -1,6 +1,6 @@
 use crate::core::infrastructure::io_manager::IOManager;
 use crate::interface::file_system::FileSystemTrait;
-use crate::model::backup::progress_data::ProgressData;
+use crate::model::core::backup::progress_data::ProgressData;
 use crate::model::error::Error;
 use crate::model::error::io::IOError;
 use crate::model::error::misc::MiscError;

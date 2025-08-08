@@ -1,6 +1,6 @@
 use uuid::Uuid;
 use crate::interface::event::Event;
-use crate::model::backup::backup_schedule::BackupSchedule;
+use crate::model::core::schedule::backup_schedule::BackupSchedule;
 
 #[derive(Clone, Debug)]
 pub struct ScheduleCreateRequest {

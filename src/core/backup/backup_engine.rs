@@ -3,7 +3,7 @@ use crate::core::infrastructure::io_manager::IOManager;
 use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
 use crate::interface::service_unit::ServiceUnit;
-use crate::model::backup::backup_execution::*;
+use crate::model::core::backup::backup_execution::*;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
@@ -24,7 +24,6 @@ use uuid::Uuid;
 
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
-    event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
@@ -34,7 +33,6 @@ pub struct BackupEngine {
 impl BackupEngine {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
@@ -175,7 +173,6 @@ impl BackupEngine {
 
 struct ExecutionRunner {
     app_config: Arc<AppConfig>,
-    event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
@@ -185,7 +182,6 @@ struct ExecutionRunner {
 impl ExecutionRunner {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
         progress_tracker: Arc<ProgressTracker>,
         executions: Arc<DashMap<Uuid, BackupExecution>>,
