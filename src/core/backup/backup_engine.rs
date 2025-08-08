@@ -1,5 +1,4 @@
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::event_bus::EventBus;
 use crate::core::infrastructure::io_manager::IOManager;
 use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;

@@ -1,7 +1,6 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::backup::backup_engine::BackupEngine;
 use crate::core::infrastructure::database_manager::DatabaseManager;
-use crate::core::event_bus::EventBus;
 use crate::core::gui::gui_manager::GuiManager;
 use crate::core::infrastructure::io_manager::IOManager;
 use crate::core::backup::progress_tracker::ProgressTracker;

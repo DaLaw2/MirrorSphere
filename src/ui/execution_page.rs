@@ -1,6 +1,5 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::backup::backup_engine::BackupEngine;
-use crate::core::event_bus::EventBus;
 use crate::model::backup::backup_execution::*;
 use crate::model::error::Error;
 use crate::model::event::error::BackupError;
