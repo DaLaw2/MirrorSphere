@@ -1,6 +1,7 @@
 pub mod actor;
 pub mod database;
 pub mod io;
+pub mod message;
 pub mod misc;
 pub mod system;
 pub mod task;
