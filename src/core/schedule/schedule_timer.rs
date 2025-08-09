@@ -1,42 +1,41 @@
-use std::sync::Arc;
-use tokio::sync::{mpsc, oneshot};
-use chrono::{Duration, Utc};
-use macros::log;
-use tracing::error;
-use tokio::select;
-use tokio::time::sleep;
+use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::schedule::schedule_manager::ScheduleManager;
+use crate::core::schedule::schedule_service::ScheduleService;
 use crate::model::core::schedule::backup_schedule::ScheduleState;
+use crate::model::core::schedule::message::*;
+use crate::model::error::actor::ActorError;
 use crate::model::error::Error;
-use crate::model::error::task::TaskError;
+use chrono::{Duration, Utc};
+use std::sync::Arc;
+use tokio::select;
+use tokio::sync::{mpsc, oneshot};
+use tokio::time::sleep;
+use tracing::error;
 
 pub struct ScheduleTimer {
     app_config: Arc<AppConfig>,
-    schedule_manager: Arc<ScheduleManager>,
-    shutdown_rx: Option<oneshot::Receiver<()>>,
-    refresh_rx: mpsc::UnboundedReceiver<()>,
+    actor_system: Arc<ActorSystem>,
 }
 
 impl ScheduleTimer {
-    pub fn new(
-        app_config: Arc<AppConfig>,
-        schedule_manager: Arc<ScheduleManager>,
-        shutdown_rx: oneshot::Receiver<()>,
-        refresh_rx: mpsc::UnboundedReceiver<()>,
-    ) -> Self {
+    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Self {
         ScheduleTimer {
             app_config,
-            schedule_manager,
-            shutdown_rx: Some(shutdown_rx),
-            refresh_rx,
+            actor_system,
         }
     }
 
-    pub async fn run(mut self) {
-        let schedule_manager = self.schedule_manager.clone();
-        match self.shutdown_rx.take() {
-            Some(mut shutdown_rx) => loop {
+    pub async fn run(
+        self: Arc<Self>,
+    ) -> Result<(mpsc::UnboundedSender<()>, oneshot::Sender<()>), Error> {
+        let (refresh_tx, mut refresh_rx) = mpsc::unbounded_channel();
+        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
+        let service_ref = self
+            .actor_system
+            .actor_of::<ScheduleService>()
+            .ok_or(ActorError::ActorNotFound)?;
+        tokio::spawn(async move {
+            loop {
                 let mut sleep_time = match self.calculate_sleep_duration().await {
                     Ok(Some(duration)) => duration,
                     Ok(None) => Duration::seconds(self.app_config.default_wakeup_time),
@@ -51,22 +50,37 @@ impl ScheduleTimer {
                 select! {
                     biased;
                     _ = &mut shutdown_rx => { break; }
-                    _ = self.refresh_rx.recv() => {}
+                    _ = refresh_rx.recv() => { continue; }
                     _ = sleep(sleep_time.to_std().unwrap()) => {}
                 }
-                if let Err(err) = schedule_manager.execute_ready_schedule().await {
+                if let Err(err) = service_ref
+                    .tell(ScheduleServiceMessage::UnitNotification(
+                        UnitNotificationMessage::CheckSchedule,
+                    ))
+                    .await
+                {
                     error!("{}", err);
                 }
-            },
-            None => log!(TaskError::IllegalRunState),
-        }
+            }
+        });
+        Ok((refresh_tx, shutdown_tx))
     }
 
     async fn calculate_sleep_duration(&self) -> Result<Option<Duration>, Error> {
         let mut next_time = None;
-
-        let schedules = self.schedule_manager.get_all_schedules().await?;
-
+        let service_ref = self
+            .actor_system
+            .actor_of::<ScheduleService>()
+            .ok_or(ActorError::ActorNotFound)?;
+        let response = service_ref
+            .ask(ScheduleServiceMessage::ServiceCall(
+                ServiceCallMessage::GetSchedules,
+            ))
+            .await?;
+        let ScheduleServiceResponse::ServiceCall(service_call) = response else {
+            return Ok(None);
+        };
+        let ServiceCallResponse::GetSchedules(schedules) = service_call;
         for schedule in schedules {
             if schedule.state != ScheduleState::Active {
                 continue;

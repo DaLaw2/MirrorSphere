@@ -1,21 +1,19 @@
-use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::backup::backup_engine::BackupEngine;
+use crate::core::infrastructure::actor_system::ActorSystem;
+use crate::core::infrastructure::app_config::AppConfig;
 use crate::model::core::backup::backup_execution::*;
 use crate::model::error::Error;
-use crate::model::event::error::BackupError;
-use crate::model::event::execution::*;
-use crate::model::event::filesystem::FolderProcessing;
+use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use dashmap::DashMap;
 use eframe::egui;
 use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::Receiver;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::error;
 use uuid::Uuid;
-use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 
 #[derive(Debug, Clone)]
 struct ExecutionDisplay {
@@ -38,11 +36,7 @@ impl From<BackupExecution> for ExecutionDisplay {
 
 pub struct ExecutionPage {
     app_config: Arc<AppConfig>,
-    backup_engine: Arc<BackupEngine>,
-
-    folder_processing_events: Receiver<FolderProcessing>,
-    progress_events: Receiver<ExecutionProgress>,
-    backup_error_events: Receiver<BackupError>,
+    actor_system: Arc<ActorSystem>,
 
     executions: DashMap<Uuid, ExecutionDisplay>,
     error_messages: DashMap<Uuid, Vec<Error>>,
@@ -66,20 +60,10 @@ pub struct ExecutionPage {
 }
 
 impl ExecutionPage {
-    pub fn new(
-        app_config: Arc<AppConfig>,
-        backup_engine: Arc<BackupEngine>,
-    ) -> Self {
-        let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
-        let progress_events = event_bus.subscribe::<ExecutionProgress>();
-        let backup_error_events = event_bus.subscribe::<BackupError>();
-
+    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Self {
         Self {
             app_config,
-            backup_engine,
-            folder_processing_events,
-            progress_events,
-            backup_error_events,
+            actor_system,
             executions: DashMap::new(),
             error_messages: DashMap::new(),
             new_task_source: String::new(),
@@ -125,7 +109,8 @@ impl ExecutionPage {
 
     fn sync_all_execution_states(&mut self) {
         let latest_executions = self.backup_engine.get_all_executions();
-        let latest_ids: std::collections::HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
+        let latest_ids: std::collections::HashSet<Uuid> =
+            latest_executions.iter().map(|(id, _)| *id).collect();
 
         for (task_id, latest_execution) in latest_executions {
             if let Some(mut display) = self.executions.get_mut(&task_id) {
@@ -133,8 +118,10 @@ impl ExecutionPage {
             }
         }
 
-        self.executions.retain(|task_id, _| latest_ids.contains(task_id));
-        self.error_messages.retain(|task_id, _| latest_ids.contains(task_id));
+        self.executions
+            .retain(|task_id, _| latest_ids.contains(task_id));
+        self.error_messages
+            .retain(|task_id, _| latest_ids.contains(task_id));
 
         if let Some(viewing_id) = self.viewing_errors_for_task {
             if !latest_ids.contains(&viewing_id) {
@@ -387,7 +374,10 @@ impl ExecutionPage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Source Path:");
-                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_source));
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_task_source),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Source);
                                 self.file_dialog.pick_directory();
@@ -395,7 +385,10 @@ impl ExecutionPage {
                             ui.end_row();
 
                             ui.label("Destination Path:");
-                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_task_destination));
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_task_destination),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Destination);
                                 self.file_dialog.pick_directory();
@@ -407,9 +400,21 @@ impl ExecutionPage {
 
                     ui.label("File Comparison Mode:");
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Standard, "⚡ Standard (Size + Time)");
-                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Advanced, "🔧 Advanced (+ Attributes)");
-                        ui.radio_value(&mut self.new_task_comparison_mode, ComparisonModeSelection::Thorough, "🔍 Thorough (+ Checksum)");
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Standard,
+                            "⚡ Standard (Size + Time)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Advanced,
+                            "🔧 Advanced (+ Attributes)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Thorough,
+                            "🔍 Thorough (+ Checksum)",
+                        );
                     });
 
                     if self.new_task_comparison_mode == ComparisonModeSelection::Thorough {
@@ -418,12 +423,36 @@ impl ExecutionPage {
                             egui::ComboBox::from_id_salt("hash_type")
                                 .selected_text(format!("{:?}", self.new_task_hash_type))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE3, "BLAKE3 (Recommended)");
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::SHA256, "SHA256");
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::SHA3, "SHA3");
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE2B, "BLAKE2B");
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::BLAKE2S, "BLAKE2S");
-                                    ui.selectable_value(&mut self.new_task_hash_type, HashType::MD5, "MD5 (Legacy)");
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE3,
+                                        "BLAKE3 (Recommended)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::SHA256,
+                                        "SHA256",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::SHA3,
+                                        "SHA3",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE2B,
+                                        "BLAKE2B",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE2S,
+                                        "BLAKE2S",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::MD5,
+                                        "MD5 (Legacy)",
+                                    );
                                 });
                         });
                     }
@@ -451,7 +480,9 @@ impl ExecutionPage {
                             let comparison_mode = match self.new_task_comparison_mode {
                                 ComparisonModeSelection::Standard => Some(ComparisonMode::Standard),
                                 ComparisonModeSelection::Advanced => Some(ComparisonMode::Advanced),
-                                ComparisonModeSelection::Thorough => Some(ComparisonMode::Thorough(self.new_task_hash_type)),
+                                ComparisonModeSelection::Thorough => {
+                                    Some(ComparisonMode::Thorough(self.new_task_hash_type))
+                                }
                             };
 
                             let execution = BackupExecution {

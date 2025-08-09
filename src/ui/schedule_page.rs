@@ -1,8 +1,14 @@
+use crate::core::backup::backup_service::BackupService;
+use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::schedule::schedule_manager::ScheduleManager;
+use crate::core::schedule::schedule_service::ScheduleService;
+use crate::model::core::actor::actor_ref::ActorRef;
 use crate::model::core::backup::backup_execution::*;
 use crate::model::core::schedule::backup_schedule::*;
+use crate::model::core::schedule::message::{ScheduleServiceMessage, ServiceCallMessage};
+use crate::model::error::actor::ActorError;
 use crate::model::error::task::TaskError;
+use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
 use egui_file_dialog::FileDialog;
@@ -15,7 +21,9 @@ use uuid::Uuid;
 
 pub struct SchedulePage {
     app_config: Arc<AppConfig>,
-    schedule_manager: Arc<ScheduleManager>,
+    actor_system: Arc<ActorSystem>,
+
+    schedule_service_ref: ActorRef<ScheduleServiceMessage>,
 
     schedules: Vec<BackupSchedule>,
 
@@ -39,10 +47,14 @@ pub struct SchedulePage {
 }
 
 impl SchedulePage {
-    pub fn new(app_config: Arc<AppConfig>, schedule_manager: Arc<ScheduleManager>) -> Self {
-        Self {
+    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Result<Self, Error> {
+        let schedule_service_ref = actor_system
+            .actor_of::<ScheduleService>()
+            .ok_or(ActorError::ActorNotFound)?;
+        let schedule_page = Self {
             app_config,
-            schedule_manager,
+            actor_system,
+            schedule_service_ref,
             schedules: Vec::new(),
             new_schedule_name: String::new(),
             new_schedule_source: String::new(),
@@ -59,11 +71,18 @@ impl SchedulePage {
             show_disabled_schedules: true,
             viewing_schedule_details: None,
             last_refresh: None,
-        }
+        };
+        Ok(schedule_page)
     }
 
     fn load_schedules(&mut self) {
-        match block_on(self.schedule_manager.get_all_schedules()) {
+        match block_on(async {
+            self.schedule_service_ref
+                .ask(ScheduleServiceMessage::ServiceCall(
+                    ServiceCallMessage::GetSchedules,
+                ))
+                .await
+        }) {
             Ok(schedules) => self.schedules = schedules,
             Err(err) => log!(TaskError::LoadScheduleFailed(err)),
         }
@@ -271,12 +290,18 @@ impl SchedulePage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Schedule Name:");
-                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_name));
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_schedule_name),
+                            );
                             ui.label("");
                             ui.end_row();
 
                             ui.label("Source Path:");
-                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_source));
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_schedule_source),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Source);
                                 self.file_dialog.pick_directory();
@@ -284,7 +309,10 @@ impl SchedulePage {
                             ui.end_row();
 
                             ui.label("Destination Path:");
-                            ui.add_sized([300.0, 20.0], egui::TextEdit::singleline(&mut self.new_schedule_destination));
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_schedule_destination),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Destination);
                                 self.file_dialog.pick_directory();
@@ -318,16 +346,27 @@ impl SchedulePage {
                                 });
                             ui.label("");
                             ui.end_row();
-
                         });
 
                     ui.separator();
 
                     ui.label("File Comparison Mode:");
                     ui.horizontal(|ui| {
-                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Standard, "⚡ Standard (Size + Time)");
-                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Advanced, "🔧 Advanced (+ Attributes)");
-                        ui.radio_value(&mut self.new_schedule_comparison_mode, ComparisonModeSelection::Thorough, "🔍 Thorough (+ Checksum)");
+                        ui.radio_value(
+                            &mut self.new_schedule_comparison_mode,
+                            ComparisonModeSelection::Standard,
+                            "⚡ Standard (Size + Time)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_schedule_comparison_mode,
+                            ComparisonModeSelection::Advanced,
+                            "🔧 Advanced (+ Attributes)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_schedule_comparison_mode,
+                            ComparisonModeSelection::Thorough,
+                            "🔍 Thorough (+ Checksum)",
+                        );
                     });
 
                     if self.new_schedule_comparison_mode == ComparisonModeSelection::Thorough {
@@ -336,12 +375,36 @@ impl SchedulePage {
                             egui::ComboBox::from_id_salt("schedule_hash_type")
                                 .selected_text(format!("{:?}", self.new_schedule_hash_type))
                                 .show_ui(ui, |ui| {
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE3, "BLAKE3 (Recommended)");
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::SHA256, "SHA256");
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::SHA3, "SHA3");
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE2B, "BLAKE2B");
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::BLAKE2S, "BLAKE2S");
-                                    ui.selectable_value(&mut self.new_schedule_hash_type, HashType::MD5, "MD5 (Legacy)");
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::BLAKE3,
+                                        "BLAKE3 (Recommended)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::SHA256,
+                                        "SHA256",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::SHA3,
+                                        "SHA3",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::BLAKE2B,
+                                        "BLAKE2B",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::BLAKE2S,
+                                        "BLAKE2S",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_schedule_hash_type,
+                                        HashType::MD5,
+                                        "MD5 (Legacy)",
+                                    );
                                 });
                         });
                     }
@@ -370,7 +433,9 @@ impl SchedulePage {
                             let comparison_mode = match self.new_schedule_comparison_mode {
                                 ComparisonModeSelection::Standard => Some(ComparisonMode::Standard),
                                 ComparisonModeSelection::Advanced => Some(ComparisonMode::Advanced),
-                                ComparisonModeSelection::Thorough => Some(ComparisonMode::Thorough(self.new_schedule_hash_type)),
+                                ComparisonModeSelection::Thorough => {
+                                    Some(ComparisonMode::Thorough(self.new_schedule_hash_type))
+                                }
                             };
 
                             let schedule = BackupSchedule {
@@ -468,7 +533,7 @@ impl SchedulePage {
                                         ComparisonMode::Advanced => "Advanced (+ Attributes)",
                                         ComparisonMode::Thorough(hash_type) => {
                                             &format!("Thorough (+ Checksum: {hash_type:?})")
-                                        },
+                                        }
                                     };
                                     ui.label(mode_text);
                                     ui.end_row();

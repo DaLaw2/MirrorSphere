@@ -1,7 +1,8 @@
 use crate::interface::actor::actor::Actor;
 use crate::model::core::actor::actor_ref::ActorRef;
 use crate::model::core::actor::envelope::Envelope;
-use crate::model::error::Error;
+use crate::model::error::actor::ActorError;
+use macros::log;
 use tokio::select;
 use tokio::sync::{mpsc, oneshot};
 
@@ -27,11 +28,20 @@ impl<A: Actor> ActorRuntime<A> {
                     envelope = self.rx.recv() => {
                         match envelope {
                             Some(Envelope::Tell(message)) => {
-                                let _ = self.actor.receive(message).await;
+                                if self.actor.receive(message).await.is_err() {
+                                    log!(ActorError::SendMessageError);
+                                }
                             }
                             Some(Envelope::Ask { message, reply_to }) => {
-                                if let Ok(response) = self.actor.receive(message).await {
-                                    let _ = reply_to.send(response);
+                                match self.actor.receive(message).await {
+                                    Ok(response) => {
+                                        if reply_to.send(response).is_err() {
+                                            log!(ActorError::SendMessageError);
+                                        }
+                                    }
+                                    Err(_) => {
+                                        log!(ActorError::SendMessageError);
+                                    }
                                 }
                             }
                             None => break,

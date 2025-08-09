@@ -17,10 +17,6 @@ impl IOManager {
             file_system: FileSystem::new(semaphore),
         }
     }
-
-    pub fn terminate(&self) {
-        self.file_system.semaphore().close();
-    }
 }
 
 impl Deref for IOManager {
@@ -28,5 +24,11 @@ impl Deref for IOManager {
 
     fn deref(&self) -> &Self::Target {
         &self.file_system
+    }
+}
+
+impl Drop for IOManager {
+    fn drop(&mut self) {
+        self.file_system.semaphore().close();
     }
 }

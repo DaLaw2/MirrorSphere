@@ -1,60 +1,63 @@
-use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::backup::backup_service::BackupService;
+use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::database_manager::DatabaseManager;
 use crate::interface::repository::schedule::ScheduleRepository;
-use crate::interface::service_unit::ServiceUnit;
+use crate::model::core::backup::message::{BackupServiceMessage, ServiceCallMessage};
 use crate::model::core::schedule::backup_schedule::*;
 use crate::model::error::Error;
-use crate::model::error::system::SystemError;
-use crate::model::error::task::TaskError;
-use crate::model::event::execution::*;
-use crate::model::event::schedule::*;
-use crate::model::log::system::SystemLog;
-use async_trait::async_trait;
 use chrono::{Duration, Months, Utc};
-use macros::log;
+use dashmap::DashMap;
 use std::sync::Arc;
-use tokio::select;
-use tokio::sync::{mpsc, oneshot};
-use tokio::time::sleep;
-use tracing::error;
 use uuid::Uuid;
-use crate::core::schedule::timer::ScheduleTimer;
 
 pub struct ScheduleManager {
-    app_config: Arc<AppConfig>,
     database_manager: Arc<DatabaseManager>,
+    actor_system: Arc<ActorSystem>,
+    schedules: DashMap<Uuid, BackupSchedule>,
 }
 
 impl ScheduleManager {
-    pub fn new(
-        app_config: Arc<AppConfig>,
+    pub async fn new(
         database_manager: Arc<DatabaseManager>,
-    ) -> Self {
-        ScheduleManager {
-            app_config,
-            event_bus,
-            database_manager,
+        actor_system: Arc<ActorSystem>,
+    ) -> Result<Self, Error> {
+        let schedules = DashMap::new();
+        let database_schedules = database_manager.get_all_backup_schedules().await?;
+        for schedule in database_schedules {
+            schedules.insert(schedule.uuid, schedule);
         }
+        let schedule_manager = ScheduleManager {
+            database_manager,
+            actor_system,
+            schedules,
+        };
+        Ok(schedule_manager)
     }
 
-    pub async fn get_all_schedules(&self) -> Result<Vec<BackupSchedule>, Error> {
-        self.database_manager.get_all_backup_schedules().await
+    pub async fn get_all_schedules(&self) -> Vec<BackupSchedule> {
+        self.schedules.iter().map(|x| x.value().clone()).collect()
     }
 
     pub async fn create_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
         self.database_manager
             .create_backup_schedule(&schedule)
-            .await
+            .await?;
+        self.schedules.insert(schedule.uuid, schedule);
+        Ok(())
     }
 
     pub async fn modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
         self.database_manager
             .modify_backup_schedule(&schedule)
-            .await
+            .await?;
+        self.schedules.insert(schedule.uuid, schedule);
+        Ok(())
     }
 
     pub async fn remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
-        self.database_manager.remove_backup_schedule(uuid).await
+        self.database_manager.remove_backup_schedule(uuid).await?;
+        self.schedules.remove(&uuid);
+        Ok(())
     }
 
     pub async fn active_schedule(&self, uuid: Uuid) -> Result<(), Error> {
@@ -63,6 +66,7 @@ impl ScheduleManager {
             self.database_manager
                 .modify_backup_schedule(&schedule)
                 .await?;
+            self.schedules.insert(schedule.uuid, schedule);
         }
         Ok(())
     }
@@ -73,6 +77,7 @@ impl ScheduleManager {
             self.database_manager
                 .modify_backup_schedule(&schedule)
                 .await?;
+            self.schedules.insert(schedule.uuid, schedule);
         }
         Ok(())
     }
@@ -83,28 +88,35 @@ impl ScheduleManager {
             self.database_manager
                 .modify_backup_schedule(&schedule)
                 .await?;
+            self.schedules.insert(schedule.uuid, schedule);
         }
         Ok(())
     }
 
     pub async fn execute_ready_schedule(&self) -> Result<(), Error> {
-        let event_bus = self.event_bus.clone();
         let database_manager = self.database_manager.clone();
 
         let now = Utc::now().naive_utc();
-        let mut schedules = self.get_all_schedules().await?;
+        let mut schedules = self.get_all_schedules().await;
 
         for schedule in schedules.iter_mut() {
             if schedule.state != ScheduleState::Active {
                 continue;
             }
             if let Some(next_run_time) = schedule.next_run_time {
-                if next_run_time < now {
-                    let execution = schedule.to_execution();
-                    event_bus.publish(ExecutionAddRequest { execution });
-                    self.update_next_run_time(schedule);
-                    database_manager.modify_backup_schedule(schedule).await?;
+                if next_run_time >= now {
+                    continue;
                 }
+                let execution = schedule.to_execution();
+                if let Some(service_ref) = self.actor_system.actor_of::<BackupService>() {
+                    service_ref
+                        .tell(BackupServiceMessage::ServiceCall(
+                            ServiceCallMessage::AddExecution(execution),
+                        ))
+                        .await?;
+                }
+                self.update_next_run_time(schedule);
+                database_manager.modify_backup_schedule(schedule).await?;
             }
         }
 
@@ -129,93 +141,5 @@ impl ScheduleManager {
         };
         schedule.last_run_time = Some(now);
         schedule.next_run_time = new_next_run_time;
-    }
-}
-
-#[async_trait]
-impl ServiceUnit for ScheduleManager {
-    async fn run_impl(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
-        let (timer_shutdown_tx, timer_shutdown_rx) = oneshot::channel();
-        let (timer_refresh_tx, timer_refresh_rx) = mpsc::unbounded_channel();
-
-        let schedule_timer = ScheduleTimer::new(
-            self.app_config.clone(),
-            self.clone(),
-            timer_shutdown_rx,
-            timer_refresh_rx,
-        );
-
-        tokio::spawn(schedule_timer.run());
-
-        let event_bus = self.event_bus.clone();
-        let schedule_manager = self.clone();
-        let create_schedule = event_bus.subscribe::<ScheduleCreateRequest>();
-        let modify_schedule = event_bus.subscribe::<ScheduleModifyRequest>();
-        let remove_schedule = event_bus.subscribe::<ScheduleRemoveRequest>();
-        let active_schedule = event_bus.subscribe::<ScheduleActiveRequest>();
-        let pause_schedule = event_bus.subscribe::<SchedulePauseRequest>();
-        let disable_schedule = event_bus.subscribe::<ScheduleDisableRequest>();
-        let sleep_duration = Duration::milliseconds(self.app_config.internal_timestamp)
-            .to_std()
-            .unwrap();
-
-        loop {
-            if shutdown_rx.try_recv().is_ok() {
-                log!(SystemLog::Terminating);
-                if timer_shutdown_tx.send(()).is_err() {
-                    log!(SystemError::TerminateError(
-                        "Fail send shutdown signal to timer"
-                    ))
-                } else {
-                    log!(SystemLog::TerminateComplete);
-                }
-                break;
-            }
-
-            let mut need_refresh = false;
-
-            while let Ok(event) = create_schedule.try_recv() {
-                match schedule_manager.create_schedule(event.schedule).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-            while let Ok(event) = modify_schedule.try_recv() {
-                match schedule_manager.modify_schedule(event.schedule).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-            while let Ok(event) = remove_schedule.try_recv() {
-                match schedule_manager.remove_schedule(event.schedule_id).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-            while let Ok(event) = active_schedule.try_recv() {
-                match schedule_manager.active_schedule(event.schedule_id).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-            while let Ok(event) = pause_schedule.try_recv() {
-                match schedule_manager.pause_schedule(event.schedule_id).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-            while let Ok(event) = disable_schedule.try_recv() {
-                match schedule_manager.disable_schedule(event.schedule_id).await {
-                    Ok(_) => need_refresh = true,
-                    Err(err) => error!("{}", err),
-                }
-            }
-
-            if need_refresh {
-                let _ = timer_refresh_tx.send(());
-            }
-
-            sleep(sleep_duration).await;
-        }
     }
 }

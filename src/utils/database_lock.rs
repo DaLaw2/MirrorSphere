@@ -4,6 +4,7 @@ use crate::platform::constants::DATABASE_LOCK_PATH;
 use std::fs;
 use tokio::fs::File;
 
+#[derive(Debug)]
 pub struct DatabaseLock {
     _private: (),
 }

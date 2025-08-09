@@ -1,26 +1,26 @@
 use crate::interface::actor::actor::Actor;
 use crate::model::core::actor::actor_ref::ActorRef;
 use crate::model::core::actor::actor_runtime::ActorRuntime;
-use crossbeam_queue::SegQueue;
+use crate::model::error::system::SystemError;
 use dashmap::DashMap;
+use macros::log;
 use std::any::{Any, TypeId};
-use std::mem;
 use tokio::sync::oneshot;
 
 pub struct ActorSystem {
-    actors: DashMap<TypeId, Box<dyn Any + Send>>,
-    shutdowns: SegQueue<oneshot::Sender<()>>,
+    actors: DashMap<TypeId, Box<dyn Any + Send + Sync + 'static>>,
+    shutdowns: DashMap<TypeId, oneshot::Sender<()>>,
 }
 
 impl ActorSystem {
     pub fn new() -> Self {
         Self {
             actors: DashMap::new(),
-            shutdowns: SegQueue::new(),
+            shutdowns: DashMap::new(),
         }
     }
 
-    pub async fn spawn<A>(&mut self, actor: A)
+    pub async fn spawn<A>(&self, actor: A)
     where
         A: Actor + 'static,
     {
@@ -28,13 +28,21 @@ impl ActorSystem {
         let (actor_runtime, actor_ref) = ActorRuntime::new(actor);
         let shutdown = actor_runtime.run().await;
         self.actors.insert(actor_id, Box::new(actor_ref));
-        self.shutdowns.push(shutdown);
+        self.shutdowns.insert(actor_id, shutdown);
     }
 
-    pub fn shutdown(&mut self) {
-        let shutdowns = mem::take(&mut self.shutdowns);
-        for shutdown in shutdowns {
-            let _ = shutdown.send(());
+    pub fn shutdown(&self) {
+        let keys = self
+            .shutdowns
+            .iter()
+            .map(|x| x.key().clone())
+            .collect::<Vec<_>>();
+        for key in keys {
+            if let Some((_, shutdown)) = self.shutdowns.remove(&key) {
+                if let Err(_) = shutdown.send(()) {
+                    log!(SystemError::ShutdownSignalFailed);
+                }
+            }
         }
     }
 

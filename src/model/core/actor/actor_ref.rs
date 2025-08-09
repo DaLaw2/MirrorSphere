@@ -17,7 +17,7 @@ impl<M: Message> ActorRef<M> {
         let envelope = Envelope::Tell(message);
         self.tx
             .send(envelope)
-            .map_err(ActorError::SendMessageError)?;
+            .map_err(|_| ActorError::SendMessageError)?;
         Ok(())
     }
 
@@ -29,8 +29,8 @@ impl<M: Message> ActorRef<M> {
         };
         self.tx
             .send(envelope)
-            .map_err(ActorError::SendMessageError)?;
-        let reply = reply_rx.await.map_err(ActorError::ActorNotResponding)?;
+            .map_err(|_| ActorError::SendMessageError)?;
+        let reply = reply_rx.await.map_err(|_| ActorError::ActorNotResponding)?;
         Ok(reply)
     }
 }

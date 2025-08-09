@@ -1,15 +1,14 @@
+use crate::core::backup::progress_tracker::ProgressTracker;
+use crate::core::gui::gui_manager::GuiManager;
+use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::io_manager::IOManager;
-use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::interface::file_system::FileSystemTrait;
-use crate::interface::service_unit::ServiceUnit;
 use crate::model::core::backup::backup_execution::*;
+use crate::model::core::gui::message::GuiMessage;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
-use crate::model::event::error::BackupError;
-use crate::model::event::execution::*;
-use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -25,6 +24,7 @@ use uuid::Uuid;
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
+    actor_system: Arc<ActorSystem>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -34,12 +34,13 @@ impl BackupEngine {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
+        actor_system: Arc<ActorSystem>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             app_config,
-            event_bus,
             io_manager,
+            actor_system,
             progress_tracker,
             executions: Arc::new(DashMap::new()),
             running_executions: Arc::new(DashMap::new()),
@@ -155,15 +156,15 @@ impl BackupEngine {
 
     fn to_execution_runner(&self) -> ExecutionRunner {
         let config = self.app_config.clone();
-        let event_bus = self.event_bus.clone();
         let io_manager = self.io_manager.clone();
+        let actor_system = self.actor_system.clone();
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
         let running_executions = self.running_executions.clone();
         ExecutionRunner::new(
             config,
-            event_bus,
             io_manager,
+            actor_system,
             progress_tracker,
             executions,
             running_executions,
@@ -174,6 +175,7 @@ impl BackupEngine {
 struct ExecutionRunner {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
+    actor_system: Arc<ActorSystem>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -183,14 +185,15 @@ impl ExecutionRunner {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
+        actor_system: Arc<ActorSystem>,
         progress_tracker: Arc<ProgressTracker>,
         executions: Arc<DashMap<Uuid, BackupExecution>>,
         running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
     ) -> Self {
         Self {
             app_config,
-            event_bus,
             io_manager,
+            actor_system,
             progress_tracker,
             executions,
             running_executions,
@@ -254,8 +257,17 @@ impl ExecutionRunner {
                         next_level.extend(worker_next_level);
                         if !worker_errors.is_empty() {
                             errors.extend(worker_errors.clone());
-                            self.event_bus
-                                .publish(BackupError::new(execution.uuid, worker_errors));
+                            if let Some(gui_ref) = self.actor_system.actor_of::<GuiManager>() {
+                                if let Err(err) = gui_ref
+                                    .tell(GuiMessage::ExecutionErrors(
+                                        execution.uuid,
+                                        worker_errors,
+                                    ))
+                                    .await
+                                {
+                                    error!("{}", err);
+                                }
+                            }
                         }
                     }
                     Err(err) => log!(SystemError::ThreadPanic(err)),
@@ -635,45 +647,5 @@ impl Worker {
             .strip_prefix(source_root)
             .map_err(SystemError::UnexpectError)?;
         Ok(destination_root.join(relative_path))
-    }
-}
-
-#[async_trait]
-impl ServiceUnit for BackupEngine {
-    async fn run_impl(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
-        let backup_engine = self.clone();
-        let event_bus = self.event_bus.clone();
-        let add_execution = event_bus.subscribe::<ExecutionAddRequest>();
-        let remove_execution = event_bus.subscribe::<ExecutionRemoveRequest>();
-        let start_execution = event_bus.subscribe::<ExecutionStartRequest>();
-        let resume_execution = event_bus.subscribe::<ExecutionResumeRequested>();
-        let suspend_execution = event_bus.subscribe::<ExecutionSuspendRequest>();
-        loop {
-            if shutdown_rx.try_recv().is_ok() {
-                break;
-            }
-
-            while let Ok(event) = add_execution.try_recv() {
-                backup_engine.add_execution(event.execution).await;
-            }
-            while let Ok(event) = remove_execution.try_recv() {
-                backup_engine.remove_execution(&event.execution_id).await;
-            }
-            while let Ok(event) = start_execution.try_recv() {
-                if let Err(err) = backup_engine.start_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-            while let Ok(event) = resume_execution.try_recv() {
-                if let Err(err) = backup_engine.resume_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-            while let Ok(event) = suspend_execution.try_recv() {
-                if let Err(err) = backup_engine.suspend_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-        }
     }
 }
