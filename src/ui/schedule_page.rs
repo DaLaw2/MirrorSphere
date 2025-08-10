@@ -1,22 +1,20 @@
-use crate::core::backup::backup_service::BackupService;
 use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::schedule::schedule_service::ScheduleService;
 use crate::model::core::actor::actor_ref::ActorRef;
 use crate::model::core::backup::backup_execution::*;
 use crate::model::core::schedule::backup_schedule::*;
-use crate::model::core::schedule::message::{ScheduleServiceMessage, ServiceCallMessage};
+use crate::model::core::schedule::message::*;
 use crate::model::error::actor::ActorError;
-use crate::model::error::task::TaskError;
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
 use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
-use macros::log;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::error;
 use uuid::Uuid;
 
 pub struct SchedulePage {
@@ -83,9 +81,94 @@ impl SchedulePage {
                 ))
                 .await
         }) {
-            Ok(schedules) => self.schedules = schedules,
-            Err(err) => log!(TaskError::LoadScheduleFailed(err)),
+            Ok(ScheduleServiceResponse::ServiceCall(ServiceCallResponse::GetSchedules(
+                schedules,
+            ))) => {
+                self.schedules = schedules;
+            }
+            Ok(ScheduleServiceResponse::None) => {}
+            Err(err) => {
+                error!("{}", err);
+            }
         }
+    }
+
+    fn handle_add_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::AddSchedule(schedule));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
+    }
+
+    fn handle_modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::ModifySchedule(schedule));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
+    }
+
+    fn handle_remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::RemoveSchedule(uuid));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
+    }
+
+    fn handle_active_schedule(&self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::ActivateSchedule(uuid));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
+    }
+
+    fn handle_pause_schedule(&self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::PauseSchedule(uuid));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
+    }
+
+    fn handle_disable_schedule(&self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<ScheduleService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::DisableSchedule(uuid));
+            backup_actor_ref.tell(message).await?;
+            Ok(())
+        })
     }
 
     pub fn update(&mut self, ctx: &egui::Context) {
@@ -230,28 +313,22 @@ impl SchedulePage {
                         match schedule.state {
                             ScheduleState::Active => {
                                 if ui.button("⏸ Pause").clicked() {
-                                    if let Err(err) = block_on(
-                                        self.schedule_manager.pause_schedule(schedule.uuid),
-                                    ) {
-                                        log!(TaskError::PauseScheduleFailed(err));
+                                    if let Err(err) = self.handle_pause_schedule(schedule.uuid) {
+                                        error!("{}", err);
                                     }
                                 }
                             }
                             ScheduleState::Paused => {
                                 if ui.button("▶ Resume").clicked() {
-                                    if let Err(err) = block_on(
-                                        self.schedule_manager.active_schedule(schedule.uuid),
-                                    ) {
-                                        log!(TaskError::EnableScheduleFailed(err));
+                                    if let Err(err) = self.handle_active_schedule(schedule.uuid) {
+                                        error!("{}", err);
                                     }
                                 }
                             }
                             ScheduleState::Disabled => {
                                 if ui.button("▶ Enable").clicked() {
-                                    if let Err(err) = block_on(
-                                        self.schedule_manager.active_schedule(schedule.uuid),
-                                    ) {
-                                        log!(TaskError::EnableScheduleFailed(err));
+                                    if let Err(err) = self.handle_active_schedule(schedule.uuid) {
+                                        error!("{}", err);
                                     }
                                 }
                             }
@@ -260,18 +337,14 @@ impl SchedulePage {
                         if schedule.state != ScheduleState::Disabled
                             && ui.button("❌ Disable").clicked()
                         {
-                            if let Err(err) =
-                                block_on(self.schedule_manager.disable_schedule(schedule.uuid))
-                            {
-                                log!(TaskError::DisableScheduleFailed(err));
+                            if let Err(err) = self.handle_disable_schedule(schedule.uuid) {
+                                error!("{}", err);
                             }
                         }
 
                         if ui.button("🗑").clicked() {
-                            if let Err(err) =
-                                block_on(self.schedule_manager.remove_schedule(schedule.uuid))
-                            {
-                                log!(TaskError::RemoveScheduleFailed(err));
+                            if let Err(err) = self.handle_remove_schedule(schedule.uuid) {
+                                error!("{}", err);
                             }
                         }
                     });
@@ -458,10 +531,8 @@ impl SchedulePage {
                                 updated_at: chrono::Utc::now().naive_utc(),
                             };
 
-                            if let Err(e) =
-                                block_on(self.schedule_manager.create_schedule(schedule))
-                            {
-                                eprintln!("Failed to create schedule: {e:?}");
+                            if let Err(err) = self.handle_add_schedule(schedule) {
+                                error!("{}", err);
                             }
 
                             self.reset_schedule_form();

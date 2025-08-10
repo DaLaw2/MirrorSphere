@@ -1,7 +1,6 @@
 pub mod actor;
 pub mod database;
 pub mod io;
-pub mod message;
 pub mod misc;
 pub mod system;
 pub mod task;
@@ -14,7 +13,7 @@ use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, thiserror::Error, Serialize, Deserialize, Clone)]
+#[derive(Clone, Debug, thiserror::Error, Serialize, Deserialize)]
 pub enum Error {
     #[error("{0}")]
     Actor(ActorError),

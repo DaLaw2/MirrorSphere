@@ -25,6 +25,5 @@ pub enum ServiceCallMessage {
 }
 
 pub enum ServiceCallResponse {
-    GetExecutions(Vec<(Uuid, BackupExecution)>),
-    None,
+    GetExecutions(Vec<(Uuid, BackupExecution)>)
 }

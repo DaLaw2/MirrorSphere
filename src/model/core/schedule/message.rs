@@ -13,7 +13,6 @@ pub enum ScheduleServiceResponse {
 }
 
 pub enum UnitNotificationMessage {
-    RefreshTimer,
     CheckSchedule,
 }
 

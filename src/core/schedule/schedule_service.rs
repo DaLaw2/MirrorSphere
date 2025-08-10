@@ -74,10 +74,6 @@ impl Actor for ScheduleService {
         match message {
             ScheduleServiceMessage::UnitNotification(unit_notification) => {
                 match unit_notification {
-                    UnitNotificationMessage::RefreshTimer => {
-                        self.refresh_timer();
-                        Ok(ScheduleServiceResponse::None)
-                    }
                     UnitNotificationMessage::CheckSchedule => {
                         self.schedule_manager.execute_ready_schedule().await?;
                         Ok(ScheduleServiceResponse::None)

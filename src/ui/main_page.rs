@@ -1,20 +1,10 @@
-use crate::core::backup::backup_engine::BackupEngine;
-use crate::core::infrastructure::actor_system::ActorSystem;
-use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::schedule::schedule_manager::ScheduleManager;
 use crate::model::log::system::SystemLog;
+use crate::ui::common::PageType;
 use crate::ui::execution_page::ExecutionPage;
 use crate::ui::schedule_page::SchedulePage;
 use eframe::egui;
 use eframe::{App, Frame};
 use macros::log;
-use std::sync::Arc;
-
-#[derive(Debug, Clone, PartialEq)]
-enum PageType {
-    Executions,
-    Schedules,
-}
 
 pub struct MainPage {
     current_page: PageType,
@@ -23,11 +13,11 @@ pub struct MainPage {
 }
 
 impl MainPage {
-    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Self {
+    pub fn new(execution_page: ExecutionPage, schedule_page: SchedulePage) -> Self {
         Self {
             current_page: PageType::Executions,
-            execution_page: ExecutionPage::new(app_config.clone(), actor_system.clone()),
-            schedule_page: SchedulePage::new(app_config, actor_system),
+            execution_page,
+            schedule_page,
         }
     }
 

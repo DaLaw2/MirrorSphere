@@ -12,7 +12,6 @@ use std::sync::Arc;
 
 pub struct BackupService {
     backup_engine: Arc<BackupEngine>,
-    progress_tracker: Arc<ProgressTracker>,
 }
 
 impl BackupService {
@@ -26,11 +25,10 @@ impl BackupService {
             app_config,
             io_manager,
             actor_system.clone(),
-            progress_tracker.clone(),
+            progress_tracker,
         ));
         let backup_service = Self {
             backup_engine,
-            progress_tracker,
         };
         actor_system.spawn(backup_service).await;
     }

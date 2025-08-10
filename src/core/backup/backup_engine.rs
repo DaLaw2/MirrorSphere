@@ -1,5 +1,5 @@
 use crate::core::backup::progress_tracker::ProgressTracker;
-use crate::core::gui::gui_manager::GuiManager;
+use crate::core::gui::gui_message_handler::GuiMessageHandler;
 use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::io_manager::IOManager;
@@ -64,10 +64,6 @@ impl BackupEngine {
                 }
             }
         }
-    }
-
-    pub fn get_execution(&self, uuid: &Uuid) -> Option<BackupExecution> {
-        self.executions.get(uuid).map(|entry| entry.clone())
     }
 
     pub fn get_all_executions(&self) -> Vec<(Uuid, BackupExecution)> {
@@ -257,12 +253,13 @@ impl ExecutionRunner {
                         next_level.extend(worker_next_level);
                         if !worker_errors.is_empty() {
                             errors.extend(worker_errors.clone());
-                            if let Some(gui_ref) = self.actor_system.actor_of::<GuiManager>() {
+                            if let Some(gui_ref) = self.actor_system.actor_of::<GuiMessageHandler>()
+                            {
                                 if let Err(err) = gui_ref
-                                    .tell(GuiMessage::ExecutionErrors(
-                                        execution.uuid,
-                                        worker_errors,
-                                    ))
+                                    .tell(GuiMessage::ExecutionErrors {
+                                        uuid: execution.uuid,
+                                        errors: worker_errors,
+                                    })
                                     .await
                                 {
                                     error!("{}", err);

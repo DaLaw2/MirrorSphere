@@ -17,17 +17,36 @@ use privilege::user::privileged;
 use std::process;
 use std::sync::Arc;
 
-pub struct System;
+pub struct System {
+    app_config: Arc<AppConfig>,
+    io_manager: Arc<IOManager>,
+    database_manager: Arc<DatabaseManager>,
+    actor_system: Arc<ActorSystem>,
+}
 
 impl System {
-    pub async fn run() -> Result<(), Error> {
-        Logging::initialize().await;
-        log!(SystemLog::Initializing);
-        Self::elevate_privileges()?;
+    pub async fn new() -> Result<Self, Error> {
         let app_config = Arc::new(AppConfig::new()?);
         let io_manager = Arc::new(IOManager::new(app_config.clone()));
         let database_manager = Arc::new(DatabaseManager::new().await?);
         let actor_system = Arc::new(ActorSystem::new());
+        let system = Self {
+            app_config,
+            io_manager,
+            database_manager,
+            actor_system,
+        };
+        Ok(system)
+    }
+
+    pub async fn run(&self) -> Result<(), Error> {
+        Logging::initialize().await;
+        log!(SystemLog::Initializing);
+        Self::elevate_privileges()?;
+        let app_config = self.app_config.clone();
+        let io_manager = self.io_manager.clone();
+        let database_manager = self.database_manager.clone();
+        let actor_system = self.actor_system.clone();
         BackupService::init(app_config.clone(), io_manager.clone(), actor_system.clone()).await;
         ScheduleService::init(
             app_config.clone(),
@@ -37,7 +56,11 @@ impl System {
         .await?;
         let gui_manager = Arc::new(GuiManager::new(app_config.clone(), actor_system.clone()));
         log!(SystemLog::InitializeComplete);
-        gui_manager.start()
+        gui_manager.start().await
+    }
+
+    pub fn shutdown(&self) {
+        self.actor_system.shutdown();
     }
 
     fn elevate_privileges() -> Result<(), Error> {
