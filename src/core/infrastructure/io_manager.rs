@@ -1,4 +1,4 @@
-use crate::core::app_config::AppConfig;
+use crate::core::infrastructure::app_config::AppConfig;
 use crate::interface::file_system::FileSystemTrait;
 use crate::platform::file_system::FileSystem;
 use std::ops::Deref;
@@ -17,10 +17,6 @@ impl IOManager {
             file_system: FileSystem::new(semaphore),
         }
     }
-
-    pub fn terminate(&self) {
-        self.file_system.semaphore().close();
-    }
 }
 
 impl Deref for IOManager {
@@ -28,5 +24,11 @@ impl Deref for IOManager {
 
     fn deref(&self) -> &Self::Target {
         &self.file_system
+    }
+}
+
+impl Drop for IOManager {
+    fn drop(&mut self) {
+        self.file_system.semaphore().close();
     }
 }

@@ -11,8 +11,8 @@ mod utils;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut system = System::new().await?;
+    let system = System::new().await?;
     system.run().await?;
-    system.terminate().await;
+    system.shutdown();
     Ok(())
 }

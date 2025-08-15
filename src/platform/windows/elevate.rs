@@ -85,7 +85,7 @@ pub fn adjust_token_privileges() -> Result<(), Error> {
             LookupPrivilegeValueW(PCWSTR::null(), privilege_name, &mut luid)
                 .map_err(SystemError::AdjustTokenPrivilegesFailed)?;
 
-            let mut token_privilege = TOKEN_PRIVILEGES {
+            let token_privilege = TOKEN_PRIVILEGES {
                 PrivilegeCount: 1,
                 Privileges: [LUID_AND_ATTRIBUTES {
                     Luid: luid,
@@ -96,7 +96,7 @@ pub fn adjust_token_privileges() -> Result<(), Error> {
             AdjustTokenPrivileges(
                 token_handle,
                 false,
-                Some(&mut token_privilege),
+                Some(&token_privilege),
                 0,
                 None,
                 None,
@@ -108,7 +108,7 @@ pub fn adjust_token_privileges() -> Result<(), Error> {
 
         let last_error = GetLastError();
         if last_error == ERROR_NOT_ALL_ASSIGNED  {
-            Err(SystemError::AdjustTokenPrivilegesFailed(format!("{:?}", last_error)))?
+            Err(SystemError::AdjustTokenPrivilegesFailed(format!("{last_error:?}")))?
         }
 
         Ok(())

@@ -5,8 +5,8 @@ fn main() {
         .set("InternalName", "MirrorSphere.exe")
         .set_version_info(winres::VersionInfo::PRODUCTVERSION, 0x0001000000000000)
         .set_language(0x0409);
-    if let Err(e) = res.compile() {
-        eprintln!("winres error: {}", e);
+    if let Err(err) = res.compile() {
+        eprintln!("winres error: {err}");
     }
 }
 

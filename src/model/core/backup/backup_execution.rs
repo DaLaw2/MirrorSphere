@@ -40,8 +40,7 @@ pub enum ComparisonMode {
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy)]
 pub struct BackupOptions {
-    pub mirror: bool,    
-    pub lock_source: bool,
+    pub mirror: bool,
     pub backup_permission: bool,
     pub follow_symlinks: bool,
 }

@@ -1,5 +1,6 @@
-target
-logs
 .idea
+logs
+target
+devnote.txt
 mirrorSphere.db
 db.lock

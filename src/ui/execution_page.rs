@@ -1,54 +1,30 @@
-use crate::core::app_config::AppConfig;
-use crate::core::backup_engine::BackupEngine;
-use crate::core::event_bus::EventBus;
-use crate::model::backup::backup_execution::*;
+use crate::core::backup::backup_service::BackupService;
+use crate::core::infrastructure::actor_system::ActorSystem;
+use crate::core::infrastructure::app_config::AppConfig;
+use crate::model::core::backup::backup_execution::*;
+use crate::model::core::backup::message::{
+    BackupServiceMessage, BackupServiceResponse, ServiceCallMessage, ServiceCallResponse,
+};
+use crate::model::core::gui::message::GuiMessage;
+use crate::model::error::actor::ActorError;
 use crate::model::error::Error;
-use crate::model::event::error::BackupError;
-use crate::model::event::execution::*;
-use crate::model::event::filesystem::FolderProcessing;
+use crate::ui::common::{ComparisonModeSelection, ExecutionDisplay, FolderSelectionMode};
 use dashmap::DashMap;
 use eframe::egui;
 use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
+use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::Arc;
-use std::sync::mpsc::Receiver;
+use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 use tracing::error;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
-struct ExecutionDisplay {
-    execution: BackupExecution,
-    current_folder: String,
-    processed_files: usize,
-    error_count: usize,
-}
-
-impl From<BackupExecution> for ExecutionDisplay {
-    fn from(execution: BackupExecution) -> Self {
-        Self {
-            execution,
-            current_folder: String::new(),
-            processed_files: 0,
-            error_count: 0,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum FolderSelectionMode {
-    Source,
-    Destination,
-}
-
 pub struct ExecutionPage {
     app_config: Arc<AppConfig>,
-    backup_engine: Arc<BackupEngine>,
+    actor_system: Arc<ActorSystem>,
 
-    folder_processing_events: Receiver<FolderProcessing>,
-    progress_events: Receiver<ExecutionProgress>,
-    backup_error_events: Receiver<BackupError>,
+    message_rx: mpsc::Receiver<GuiMessage>,
 
     executions: DashMap<Uuid, ExecutionDisplay>,
     error_messages: DashMap<Uuid, Vec<Error>>,
@@ -56,9 +32,10 @@ pub struct ExecutionPage {
     new_task_source: String,
     new_task_destination: String,
     new_task_mirror: bool,
-    new_task_lock_source: bool,
     new_task_backup_permission: bool,
     new_task_follow_symlinks: bool,
+    new_task_comparison_mode: ComparisonModeSelection,
+    new_task_hash_type: HashType,
     show_add_task_dialog: bool,
 
     file_dialog: FileDialog,
@@ -73,27 +50,22 @@ pub struct ExecutionPage {
 impl ExecutionPage {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
-        backup_engine: Arc<BackupEngine>,
+        actor_system: Arc<ActorSystem>,
+        message_rx: mpsc::Receiver<GuiMessage>,
     ) -> Self {
-        let folder_processing_events = event_bus.subscribe::<FolderProcessing>();
-        let progress_events = event_bus.subscribe::<ExecutionProgress>();
-        let backup_error_events = event_bus.subscribe::<BackupError>();
-
         Self {
             app_config,
-            backup_engine,
-            folder_processing_events,
-            progress_events,
-            backup_error_events,
+            actor_system,
+            message_rx,
             executions: DashMap::new(),
             error_messages: DashMap::new(),
             new_task_source: String::new(),
             new_task_destination: String::new(),
             new_task_mirror: false,
-            new_task_lock_source: false,
             new_task_backup_permission: false,
             new_task_follow_symlinks: false,
+            new_task_comparison_mode: ComparisonModeSelection::Standard,
+            new_task_hash_type: HashType::BLAKE3,
             show_add_task_dialog: false,
             file_dialog: FileDialog::new(),
             folder_selection_mode: None,
@@ -105,90 +77,150 @@ impl ExecutionPage {
     }
 
     fn process_events(&mut self) {
-        while let Ok(event) = self.folder_processing_events.try_recv() {
-            if let Some(mut task_display) = self.executions.get_mut(&event.execution_id) {
-                task_display.current_folder = event.current_folder.to_string_lossy().to_string();
-            }
-        }
-
-        while let Ok(event) = self.progress_events.try_recv() {
-            if let Some(mut task_display) = self.executions.get_mut(&event.task_id) {
-                task_display.processed_files = event.processed_files;
-                task_display.error_count = event.error_count;
-            }
-        }
-
-        while let Ok(event) = self.backup_error_events.try_recv() {
-            match self.error_messages.get_mut(&event.task_id) {
-                Some(mut errors) => errors.push(event.error),
-                None => {
-                    self.error_messages.insert(event.task_id, vec![event.error]);
+        while let Ok(message) = self.message_rx.try_recv() {
+            match message {
+                GuiMessage::FolderProcess { uuid, folder } => {
+                    if let Some(mut task_display) = self.executions.get_mut(&uuid) {
+                        task_display.current_folder = folder.to_string_lossy().to_string();
+                    }
+                }
+                GuiMessage::ExecutionProgress {
+                    uuid,
+                    processed_files,
+                    error_count,
+                } => {
+                    if let Some(mut task_display) = self.executions.get_mut(&uuid) {
+                        task_display.processed_files = processed_files;
+                        task_display.error_count = error_count;
+                    }
+                }
+                GuiMessage::ExecutionErrors { uuid, errors } => {
+                    match self.error_messages.get_mut(&uuid) {
+                        Some(mut errors_ref) => errors_ref.extend(errors),
+                        None => {
+                            self.error_messages.insert(uuid, errors);
+                        }
+                    }
                 }
             }
         }
     }
 
     fn sync_all_execution_states(&mut self) {
-        let latest_executions = self.backup_engine.get_all_executions();
-        let latest_ids: std::collections::HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
+        if let Ok(response) = block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            backup_actor_ref
+                .ask(BackupServiceMessage::ServiceCall(
+                    ServiceCallMessage::GetExecutions,
+                ))
+                .await
+        }) {
+            let BackupServiceResponse::ServiceCall(service_call) = response else {
+                return;
+            };
+            let ServiceCallResponse::GetExecutions(latest_executions) = service_call;
+            let latest_ids: HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
 
-        for (task_id, latest_execution) in latest_executions {
-            if let Some(mut display) = self.executions.get_mut(&task_id) {
-                display.execution = latest_execution;
+            for (task_id, latest_execution) in latest_executions {
+                if let Some(mut display) = self.executions.get_mut(&task_id) {
+                    display.execution = latest_execution;
+                }
             }
-        }
 
-        self.executions.retain(|task_id, _| latest_ids.contains(task_id));
-        self.error_messages.retain(|task_id, _| latest_ids.contains(task_id));
+            self.executions
+                .retain(|task_id, _| latest_ids.contains(task_id));
+            self.error_messages
+                .retain(|task_id, _| latest_ids.contains(task_id));
 
-        if let Some(viewing_id) = self.viewing_errors_for_task {
-            if !latest_ids.contains(&viewing_id) {
-                self.viewing_errors_for_task = None;
-            }
-        }
-    }
-
-    fn sync_execution_state(&mut self, task_id: Uuid) {
-        if let Some(latest_execution) = self.backup_engine.get_execution(&task_id) {
-            if let Some(mut display) = self.executions.get_mut(&task_id) {
-                display.execution = latest_execution;
-            }
-        }
-    }
-
-    fn handle_start_execution(&mut self, task_id: Uuid) {
-        match block_on(self.backup_engine.start_execution(task_id)) {
-            Ok(_) => self.sync_execution_state(task_id),
-            Err(err) => {
-                self.sync_execution_state(task_id);
-                error!("{}", err);
-            }
-        }
-    }
-
-    fn handle_suspend_execution(&mut self, task_id: Uuid) {
-        match block_on(self.backup_engine.suspend_execution(task_id)) {
-            Ok(_) => self.sync_execution_state(task_id),
-            Err(err) => {
-                self.sync_execution_state(task_id);
-                error!("{}", err);
+            if let Some(viewing_id) = self.viewing_errors_for_task {
+                if !latest_ids.contains(&viewing_id) {
+                    self.viewing_errors_for_task = None;
+                }
             }
         }
     }
 
-    fn handle_resume_execution(&mut self, task_id: Uuid) {
-        match block_on(self.backup_engine.resume_execution(task_id)) {
-            Ok(_) => self.sync_execution_state(task_id),
-            Err(err) => {
-                self.sync_execution_state(task_id);
-                error!("{}", err);
-            }
-        }
+    fn handle_add_execution(&mut self, execution: BackupExecution) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                BackupServiceMessage::ServiceCall(ServiceCallMessage::AddExecution(execution));
+            backup_actor_ref
+                .tell(message)
+                .await
+                .map_err(|_| ActorError::SendMessageError)?;
+            Ok(())
+        })
     }
 
-    fn handle_remove_execution(&mut self, task_id: Uuid) {
-        block_on(self.backup_engine.remove_execution(&task_id));
-        self.executions.remove(&task_id);
+    fn handle_start_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                BackupServiceMessage::ServiceCall(ServiceCallMessage::StartExecution(uuid));
+            backup_actor_ref
+                .tell(message)
+                .await
+                .map_err(|_| ActorError::SendMessageError)?;
+            Ok(())
+        })
+    }
+
+    fn handle_suspend_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                BackupServiceMessage::ServiceCall(ServiceCallMessage::SuspendExecution(uuid));
+            backup_actor_ref
+                .tell(message)
+                .await
+                .map_err(|_| ActorError::SendMessageError)?;
+            Ok(())
+        })
+    }
+
+    fn handle_resume_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                BackupServiceMessage::ServiceCall(ServiceCallMessage::ResumeExecution(uuid));
+            backup_actor_ref
+                .tell(message)
+                .await
+                .map_err(|_| ActorError::SendMessageError)?;
+            Ok(())
+        })
+    }
+
+    fn handle_remove_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
+        block_on(async {
+            let backup_actor_ref = self
+                .actor_system
+                .actor_of::<BackupService>()
+                .ok_or(ActorError::ActorNotFound)?;
+            let message =
+                BackupServiceMessage::ServiceCall(ServiceCallMessage::RemoveExecution(uuid));
+            backup_actor_ref
+                .tell(message)
+                .await
+                .map_err(|_| ActorError::SendMessageError)?;
+            Ok(())
+        })
     }
 
     pub fn update(&mut self, ctx: &egui::Context) {
@@ -288,7 +320,7 @@ impl ExecutionPage {
     fn draw_execution_item(
         &mut self,
         ui: &mut egui::Ui,
-        task_id: Uuid,
+        uuid: Uuid,
         task_display: &ExecutionDisplay,
     ) {
         egui::Frame::new()
@@ -345,10 +377,10 @@ impl ExecutionPage {
                     });
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if let Some(errors) = self.error_messages.get(&task_id) {
+                        if let Some(errors) = self.error_messages.get(&uuid) {
                             if !errors.is_empty() {
                                 if ui.small_button("👁 View Errors").clicked() {
-                                    self.viewing_errors_for_task = Some(task_id);
+                                    self.viewing_errors_for_task = Some(uuid);
                                 }
                                 ui.separator();
                             }
@@ -357,24 +389,32 @@ impl ExecutionPage {
                         match task_display.execution.state {
                             BackupState::Pending => {
                                 if ui.button("▶ Start").clicked() {
-                                    self.handle_start_execution(task_id);
+                                    if let Err(err) = self.handle_start_execution(uuid) {
+                                        error!("{}", err);
+                                    }
                                 }
                             }
                             BackupState::Suspended => {
                                 if ui.button("▶ Resume").clicked() {
-                                    self.handle_resume_execution(task_id);
+                                    if let Err(err) = self.handle_resume_execution(uuid) {
+                                        error!("{}", err);
+                                    }
                                 }
                             }
                             BackupState::Running => {
                                 if ui.button("⏸ Pause").clicked() {
-                                    self.handle_suspend_execution(task_id);
+                                    if let Err(err) = self.handle_suspend_execution(uuid) {
+                                        error!("{}", err);
+                                    }
                                 }
                             }
                             _ => {}
                         }
 
                         if ui.button("🗑").clicked() {
-                            self.handle_remove_execution(task_id);
+                            if let Err(err) = self.handle_remove_execution(uuid) {
+                                error!("{}", err);
+                            }
                         }
                     });
                 });
@@ -392,7 +432,10 @@ impl ExecutionPage {
                         .spacing([10.0, 4.0])
                         .show(ui, |ui| {
                             ui.label("Source Path:");
-                            ui.text_edit_singleline(&mut self.new_task_source);
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_task_source),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Source);
                                 self.file_dialog.pick_directory();
@@ -400,7 +443,10 @@ impl ExecutionPage {
                             ui.end_row();
 
                             ui.label("Destination Path:");
-                            ui.text_edit_singleline(&mut self.new_task_destination);
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.new_task_destination),
+                            );
                             if ui.button("📁 Browse").clicked() {
                                 self.folder_selection_mode = Some(FolderSelectionMode::Destination);
                                 self.file_dialog.pick_directory();
@@ -410,13 +456,73 @@ impl ExecutionPage {
 
                     ui.separator();
 
-                    ui.label("Options:");
+                    ui.label("File Comparison Mode:");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Standard,
+                            "⚡ Standard (Size + Time)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Advanced,
+                            "🔧 Advanced (+ Attributes)",
+                        );
+                        ui.radio_value(
+                            &mut self.new_task_comparison_mode,
+                            ComparisonModeSelection::Thorough,
+                            "🔍 Thorough (+ Checksum)",
+                        );
+                    });
+
+                    if self.new_task_comparison_mode == ComparisonModeSelection::Thorough {
+                        ui.horizontal(|ui| {
+                            ui.label("  Hash Algorithm:");
+                            egui::ComboBox::from_id_salt("hash_type")
+                                .selected_text(format!("{:?}", self.new_task_hash_type))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE3,
+                                        "BLAKE3 (Recommended)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::SHA256,
+                                        "SHA256",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::SHA3,
+                                        "SHA3",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE2B,
+                                        "BLAKE2B",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::BLAKE2S,
+                                        "BLAKE2S",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.new_task_hash_type,
+                                        HashType::MD5,
+                                        "MD5 (Legacy)",
+                                    );
+                                });
+                        });
+                    }
+
+                    ui.separator();
+
+                    ui.label("Additional Options:");
                     ui.checkbox(&mut self.new_task_follow_symlinks, "Follow Symlinks");
                     ui.checkbox(
                         &mut self.new_task_mirror,
                         "Mirror Mode (Delete extra files in destination)",
                     );
-                    ui.checkbox(&mut self.new_task_lock_source, "Lock Source Files");
                     ui.checkbox(
                         &mut self.new_task_backup_permission,
                         "Backup File Permissions",
@@ -429,25 +535,38 @@ impl ExecutionPage {
                             && !self.new_task_source.is_empty()
                             && !self.new_task_destination.is_empty()
                         {
+                            let comparison_mode = match self.new_task_comparison_mode {
+                                ComparisonModeSelection::Standard => Some(ComparisonMode::Standard),
+                                ComparisonModeSelection::Advanced => Some(ComparisonMode::Advanced),
+                                ComparisonModeSelection::Thorough => {
+                                    Some(ComparisonMode::Thorough(self.new_task_hash_type))
+                                }
+                            };
+
                             let execution = BackupExecution {
                                 uuid: Uuid::new_v4(),
                                 state: BackupState::Pending,
                                 source_path: PathBuf::from(&self.new_task_source),
                                 destination_path: PathBuf::from(&self.new_task_destination),
                                 backup_type: BackupType::Full,
-                                comparison_mode: None,
+                                comparison_mode,
                                 options: BackupOptions {
                                     mirror: self.new_task_mirror,
-                                    lock_source: self.new_task_lock_source,
                                     backup_permission: self.new_task_backup_permission,
                                     follow_symlinks: self.new_task_follow_symlinks,
                                 },
                             };
 
-                            block_on(self.backup_engine.add_execution(execution.clone()));
-                            let execution_display = ExecutionDisplay::from(execution.clone());
-                            self.executions.insert(execution.uuid, execution_display);
-                            self.reset_form();
+                            match self.handle_add_execution(execution.clone()) {
+                                Ok(_) => {
+                                    let execution_display = ExecutionDisplay::from(execution.clone());
+                                    self.executions.insert(execution.uuid, execution_display);
+                                    self.reset_form();
+                                }
+                                Err(err) => {
+                                    error!("{}", err);
+                                }
+                            }
                         }
 
                         if ui.button("Cancel").clicked() {
@@ -559,9 +678,10 @@ impl ExecutionPage {
         self.new_task_source.clear();
         self.new_task_destination.clear();
         self.new_task_mirror = false;
-        self.new_task_lock_source = false;
         self.new_task_backup_permission = false;
         self.new_task_follow_symlinks = false;
+        self.new_task_comparison_mode = ComparisonModeSelection::Standard;
+        self.new_task_hash_type = HashType::BLAKE3;
         self.show_add_task_dialog = false;
     }
 }

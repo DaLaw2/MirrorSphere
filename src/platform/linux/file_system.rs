@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use libc::mode_t;
 use std::ffi::CString;
 use std::os::unix::fs::MetadataExt;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::Semaphore;
@@ -27,27 +27,21 @@ impl FileSystemTrait for FileSystem {
         self.semaphore.clone()
     }
 
-    async fn copy_symlink(
-        &self,
-        source_link: &PathBuf,
-        destination_link: &PathBuf,
-    ) -> Result<(), Error> {
+    async fn copy_symlink(&self, source_link: &Path, destination_link: &Path) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(IOError::SemaphoreClosed)?;
 
-        tokio::fs::symlink(&source_link, destination_link)
+        tokio::fs::symlink(source_link, destination_link)
             .await
-            .map_err(|err| {
-                IOError::CreateSymbolLinkFailed(source_link.clone(), destination_link.clone(), err)
-            })?;
+            .map_err(|err| IOError::CreateSymbolLinkFailed(source_link, destination_link, err))?;
 
         Ok(())
     }
 
-    async fn get_attributes(&self, path: &PathBuf) -> Result<Attributes, Error> {
+    async fn get_attributes(&self, path: &Path) -> Result<Attributes, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
@@ -56,7 +50,7 @@ impl FileSystemTrait for FileSystem {
 
         let metadata = tokio::fs::metadata(path)
             .await
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
 
         let mode = metadata.mode();
         let file_type = metadata.file_type();
@@ -78,10 +72,10 @@ impl FileSystemTrait for FileSystem {
             .unwrap_or_else(|_| metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH));
         let last_access_time = metadata
             .accessed()
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
         let change_time = metadata
             .modified()
-            .map_err(|err| IOError::GetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::GetMetadataFailed(path, err))?;
 
         let attributes = Attributes {
             attributes,
@@ -93,14 +87,14 @@ impl FileSystemTrait for FileSystem {
         Ok(attributes)
     }
 
-    async fn set_attributes(&self, path: &PathBuf, attributes: Attributes) -> Result<(), Error> {
+    async fn set_attributes(&self, path: &Path, attributes: Attributes) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(IOError::SemaphoreClosed)?;
 
-        let path_clone = path.clone();
+        let path_clone = path.to_path_buf();
         let mode = attributes.attributes & 0o7777;
 
         spawn_blocking(move || {
@@ -127,14 +121,14 @@ impl FileSystemTrait for FileSystem {
         Ok(())
     }
 
-    async fn get_permission(&self, path: &PathBuf) -> Result<Permissions, Error> {
+    async fn get_permission(&self, path: &Path) -> Result<Permissions, Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(IOError::SemaphoreClosed)?;
 
-        let path_clone = path.clone();
+        let path_clone = path.to_path_buf();
 
         let permission = spawn_blocking(move || {
             let path = path_clone;
@@ -149,9 +143,9 @@ impl FileSystemTrait for FileSystem {
                 uid,
                 gid,
                 mode,
-                is_sticky: (mode & libc::S_ISVTX as u32) != 0,
-                is_setuid: (mode & libc::S_ISUID as u32) != 0,
-                is_setgid: (mode & libc::S_ISGID as u32) != 0,
+                is_sticky: (mode & libc::S_ISVTX) != 0,
+                is_setuid: (mode & libc::S_ISUID) != 0,
+                is_setgid: (mode & libc::S_ISGID) != 0,
             })
         })
         .await
@@ -160,14 +154,14 @@ impl FileSystemTrait for FileSystem {
         Ok(permission)
     }
 
-    async fn set_permission(&self, path: &PathBuf, permissions: Permissions) -> Result<(), Error> {
+    async fn set_permission(&self, path: &Path, permissions: Permissions) -> Result<(), Error> {
         let semaphore = self.semaphore();
         let _permit = semaphore
             .acquire_owned()
             .await
             .map_err(IOError::SemaphoreClosed)?;
 
-        let path_clone = path.clone();
+        let path_clone = path.to_path_buf();
 
         spawn_blocking(move || {
             let path = path_clone;
@@ -176,26 +170,22 @@ impl FileSystemTrait for FileSystem {
 
             unsafe {
                 if libc::chown(c_path.as_ptr(), permissions.uid, permissions.gid) != 0 {
-                    return Err(
-                        IOError::SetMetadataFailed(path.clone(), "libc chmod failed").into(),
-                    );
+                    return Err(IOError::SetMetadataFailed(path, "libc chmod failed").into());
                 }
 
                 let mut mode = permissions.mode & 0o7777;
                 if permissions.is_sticky {
-                    mode |= libc::S_ISVTX as u32;
+                    mode |= libc::S_ISVTX;
                 }
                 if permissions.is_setuid {
-                    mode |= libc::S_ISUID as u32;
+                    mode |= libc::S_ISUID;
                 }
                 if permissions.is_setgid {
-                    mode |= libc::S_ISGID as u32;
+                    mode |= libc::S_ISGID;
                 }
 
                 if libc::chmod(c_path.as_ptr(), mode as mode_t) != 0 {
-                    return Err(
-                        IOError::SetMetadataFailed(path.clone(), "libc chmod failed").into(),
-                    );
+                    return Err(IOError::SetMetadataFailed(path, "libc chmod failed").into());
                 }
             }
 
@@ -209,9 +199,9 @@ impl FileSystemTrait for FileSystem {
 }
 
 impl FileSystem {
-    fn set_file_times(path: &PathBuf, attributes: &Attributes) -> Result<(), Error> {
+    fn set_file_times(path: &Path, attributes: &Attributes) -> Result<(), Error> {
         let c_path = CString::new(path.to_string_lossy().as_bytes())
-            .map_err(|err| IOError::SetMetadataFailed(path.clone(), err))?;
+            .map_err(|err| IOError::SetMetadataFailed(path, err))?;
 
         let access_time = Self::system_time_to_timespec(attributes.last_access_time)?;
         let modify_time = Self::system_time_to_timespec(attributes.change_time)?;
@@ -220,10 +210,7 @@ impl FileSystem {
 
         unsafe {
             if libc::utimensat(libc::AT_FDCWD, c_path.as_ptr(), times.as_ptr(), 0) != 0 {
-                Err(IOError::SetMetadataFailed(
-                    path.clone(),
-                    "libc utimensat failed",
-                ))?;
+                Err(IOError::SetMetadataFailed(path, "libc utimensat failed"))?;
             }
         }
 

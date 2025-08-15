@@ -1,21 +1,20 @@
-use crate::core::app_config::AppConfig;
-use crate::core::event_bus::EventBus;
-use crate::core::io_manager::IOManager;
-use crate::core::progress_tracker::ProgressTracker;
+use crate::core::backup::progress_tracker::ProgressTracker;
+use crate::core::gui::gui_message_handler::GuiMessageHandler;
+use crate::core::infrastructure::actor_system::ActorSystem;
+use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::infrastructure::io_manager::IOManager;
 use crate::interface::file_system::FileSystemTrait;
-use crate::interface::service_unit::ServiceUnit;
-use crate::model::backup::backup_execution::*;
-use crate::model::error::Error;
+use crate::model::core::backup::backup_execution::*;
+use crate::model::core::gui::message::GuiMessage;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
-use crate::model::event::execution::*;
-use async_trait::async_trait;
+use crate::model::error::Error;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
 use macros::log;
 use std::collections::{HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
@@ -24,8 +23,8 @@ use uuid::Uuid;
 
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
-    event_bus: Arc<EventBus>,
     io_manager: Arc<IOManager>,
+    actor_system: Arc<ActorSystem>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -34,14 +33,14 @@ pub struct BackupEngine {
 impl BackupEngine {
     pub fn new(
         app_config: Arc<AppConfig>,
-        event_bus: Arc<EventBus>,
         io_manager: Arc<IOManager>,
+        actor_system: Arc<ActorSystem>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             app_config,
-            event_bus,
             io_manager,
+            actor_system,
             progress_tracker,
             executions: Arc::new(DashMap::new()),
             running_executions: Arc::new(DashMap::new()),
@@ -52,7 +51,7 @@ impl BackupEngine {
         let keys: Vec<Uuid> = self
             .running_executions
             .iter()
-            .map(|pair| pair.key().clone())
+            .map(|pair| *pair.key())
             .collect();
         for uuid in keys {
             if let Some((_, (shutdown, handle))) = self.running_executions.remove(&uuid) {
@@ -65,10 +64,6 @@ impl BackupEngine {
                 }
             }
         }
-    }
-
-    pub fn get_execution(&self, uuid: &Uuid) -> Option<BackupExecution> {
-        self.executions.get(uuid).map(|entry| entry.clone())
     }
 
     pub fn get_all_executions(&self) -> Vec<(Uuid, BackupExecution)> {
@@ -158,12 +153,14 @@ impl BackupEngine {
     fn to_execution_runner(&self) -> ExecutionRunner {
         let config = self.app_config.clone();
         let io_manager = self.io_manager.clone();
+        let actor_system = self.actor_system.clone();
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
         let running_executions = self.running_executions.clone();
         ExecutionRunner::new(
             config,
             io_manager,
+            actor_system,
             progress_tracker,
             executions,
             running_executions,
@@ -174,6 +171,7 @@ impl BackupEngine {
 struct ExecutionRunner {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
+    actor_system: Arc<ActorSystem>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -183,6 +181,7 @@ impl ExecutionRunner {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
+        actor_system: Arc<ActorSystem>,
         progress_tracker: Arc<ProgressTracker>,
         executions: Arc<DashMap<Uuid, BackupExecution>>,
         running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -190,6 +189,7 @@ impl ExecutionRunner {
         Self {
             app_config,
             io_manager,
+            actor_system,
             progress_tracker,
             executions,
             running_executions,
@@ -251,7 +251,21 @@ impl ExecutionRunner {
                 match result {
                     Ok((worker_next_level, worker_errors)) => {
                         next_level.extend(worker_next_level);
-                        errors.extend(worker_errors);
+                        if !worker_errors.is_empty() {
+                            errors.extend(worker_errors.clone());
+                            if let Some(gui_ref) = self.actor_system.actor_of::<GuiMessageHandler>()
+                            {
+                                if let Err(err) = gui_ref
+                                    .tell(GuiMessage::ExecutionErrors {
+                                        uuid: execution.uuid,
+                                        errors: worker_errors,
+                                    })
+                                    .await
+                                {
+                                    error!("{}", err);
+                                }
+                            }
+                        }
                     }
                     Err(err) => log!(SystemError::ThreadPanic(err)),
                 }
@@ -261,7 +275,8 @@ impl ExecutionRunner {
                 current_level.extend(next_level);
                 if let Err(err) = progress_tracker
                     .save_execution(execution.uuid, current_level, errors)
-                    .await {
+                    .await
+                {
                     error!("{}", err);
                 }
                 break;
@@ -297,9 +312,7 @@ struct Worker {
 
 impl Worker {
     pub fn new(io_manager: Arc<IOManager>) -> Self {
-        Self {
-            io_manager
-        }
+        Self { io_manager }
     }
 
     async fn run(
@@ -370,30 +383,30 @@ impl Worker {
     async fn process_entry(
         &self,
         execution: &BackupExecution,
-        current_path: &PathBuf,
+        current_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
         let source_root = &execution.source_path;
         let destination_root = &execution.destination_path;
 
-        let source_path = current_path.clone();
-        let destination_path =
-            self.calculate_destination_path(&source_path, &source_root, &destination_root)?;
+        let source_path = current_path;
+        let destination_path = self.calculate_destination_path(source_path, source_root, destination_root)?;
+        let destination_path = destination_path.as_path();
 
-        let is_symlink = io_manager.is_symlink(&source_path).await.unwrap_or(false);
+        let is_symlink = io_manager.is_symlink(source_path).await.unwrap_or(false);
 
         if is_symlink {
-            self.process_symlink(execution, &source_path, &destination_path)
+            self.process_symlink(execution, source_path, destination_path)
                 .await?;
             return Ok(None);
         }
 
         if source_path.is_dir() {
-            self.backup_directory(execution, &source_path, &destination_path)
+            self.backup_directory(execution, source_path, destination_path)
                 .await
         } else {
-            self.backup_file(execution, &source_path, &destination_path)
+            self.backup_file(execution, source_path, destination_path)
                 .await
         }
     }
@@ -401,13 +414,13 @@ impl Worker {
     async fn backup_directory(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
 
         if !destination_path.exists() {
-            io_manager.create_directory(&destination_path).await?;
+            io_manager.create_directory(destination_path).await?;
         }
 
         io_manager
@@ -420,23 +433,16 @@ impl Worker {
                 .await?;
         }
 
-        Ok(Some(source_path.clone()))
+        Ok(Some(source_path.to_path_buf()))
     }
 
     async fn backup_file(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
-
-        #[allow(unused_variables)]
-        let mut file_lock = None;
-        #[allow(unused_assignments)]
-        if execution.options.lock_source {
-            file_lock = Some(io_manager.acquire_file_lock(source_path).await?);
-        }
 
         match execution.backup_type {
             BackupType::Full => self.full_backup(source_path, destination_path).await?,
@@ -457,8 +463,6 @@ impl Worker {
                 .await?;
         }
 
-        drop(file_lock);
-
         Ok(None)
     }
 
@@ -466,8 +470,8 @@ impl Worker {
     async fn process_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         if execution.options.follow_symlinks {
             self.follow_symlink(execution, source_path, destination_path)
@@ -481,15 +485,15 @@ impl Worker {
     async fn follow_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
 
         let mut queue = VecDeque::new();
         let mut visited = HashSet::new();
 
-        queue.push_back((source_path.clone(), destination_path.clone()));
+        queue.push_back((source_path.to_path_buf(), destination_path.to_path_buf()));
 
         while let Some((current_source, current_dest)) = queue.pop_front() {
             let is_symlink = io_manager
@@ -502,7 +506,7 @@ impl Worker {
                     Err(_) => continue,
                 }
             } else {
-                current_source.clone()
+                current_source.to_path_buf()
             };
 
             if visited.contains(&canonical_path) {
@@ -538,8 +542,8 @@ impl Worker {
     async fn copy_symlink(
         &self,
         execution: &BackupExecution,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
 
@@ -561,19 +565,15 @@ impl Worker {
     }
 
     #[inline(always)]
-    async fn full_backup(
-        &self,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
-    ) -> Result<(), Error> {
+    async fn full_backup(&self, source_path: &Path, destination_path: &Path) -> Result<(), Error> {
         let io_manager = &self.io_manager;
         io_manager.copy_file(source_path, destination_path).await
     }
 
     async fn incremental_backup(
         &self,
-        source_path: &PathBuf,
-        destination_path: &PathBuf,
+        source_path: &Path,
+        destination_path: &Path,
         comparison_mode: ComparisonMode,
     ) -> Result<(), Error> {
         let io_manager = &self.io_manager;
@@ -636,53 +636,13 @@ impl Worker {
 
     fn calculate_destination_path(
         &self,
-        source_path: &PathBuf,
-        source_root: &PathBuf,
-        destination_root: &PathBuf,
+        source_path: &Path,
+        source_root: &Path,
+        destination_root: &Path,
     ) -> Result<PathBuf, Error> {
         let relative_path = source_path
             .strip_prefix(source_root)
             .map_err(SystemError::UnexpectError)?;
         Ok(destination_root.join(relative_path))
-    }
-}
-
-#[async_trait]
-impl ServiceUnit for BackupEngine {
-    async fn run_impl(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
-        let backup_engine = self.clone();
-        let event_bus = self.event_bus.clone();
-        let add_execution = event_bus.subscribe::<ExecutionAddRequest>();
-        let remove_execution = event_bus.subscribe::<ExecutionRemoveRequest>();
-        let start_execution = event_bus.subscribe::<ExecutionStartRequest>();
-        let resume_execution = event_bus.subscribe::<ExecutionResumeRequested>();
-        let suspend_execution = event_bus.subscribe::<ExecutionSuspendRequest>();
-        loop {
-            if shutdown_rx.try_recv().is_ok() {
-                break;
-            }
-
-            while let Ok(event) = add_execution.try_recv() {
-                backup_engine.add_execution(event.execution).await;
-            }
-            while let Ok(event) = remove_execution.try_recv() {
-                backup_engine.remove_execution(&event.execution_id).await;
-            }
-            while let Ok(event) = start_execution.try_recv() {
-                if let Err(err) = backup_engine.start_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-            while let Ok(event) = resume_execution.try_recv() {
-                if let Err(err) = backup_engine.resume_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-            while let Ok(event) = suspend_execution.try_recv() {
-                if let Err(err) = backup_engine.suspend_execution(event.execution_id).await {
-                    error!("{}", err);
-                }
-            }
-        }
     }
 }

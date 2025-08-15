@@ -13,6 +13,8 @@ pub struct Attributes {
 impl PartialEq for Attributes {
     fn eq(&self, other: &Self) -> bool {
         self.attributes == other.attributes
+            && self.creation_time == other.creation_time
+            && self.change_time == other.change_time
     }
 }
 
