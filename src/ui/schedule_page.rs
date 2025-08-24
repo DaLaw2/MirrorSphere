@@ -1,12 +1,7 @@
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::schedule::schedule_service::ScheduleService;
-use crate::model::core::actor::actor_ref::ActorRef;
 use crate::model::core::backup::backup_execution::*;
 use crate::model::core::schedule::backup_schedule::*;
-use crate::model::core::schedule::message::*;
-use crate::model::error::actor::ActorError;
-use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
 use egui_file_dialog::FileDialog;

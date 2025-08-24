@@ -1,6 +1,4 @@
 use crate::core::backup::backup_service::BackupService;
-use crate::core::gui::gui_manager::GuiManager;
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::database_manager::DatabaseManager;
 use crate::core::infrastructure::io_manager::IOManager;

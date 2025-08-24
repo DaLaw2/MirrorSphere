@@ -13,4 +13,5 @@ pub struct Config {
     pub default_wakeup_time: i64,   // second
     pub max_concurrency: u8,        // number
     pub max_file_operations: usize, // number
+    pub channel_capacity: usize,
 }

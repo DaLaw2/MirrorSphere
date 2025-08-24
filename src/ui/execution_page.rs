@@ -1,12 +1,6 @@
 use crate::core::backup::backup_service::BackupService;
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::model::core::backup::backup_execution::*;
-use crate::model::core::backup::message::{
-    BackupServiceMessage, BackupServiceResponse, ServiceCallMessage, ServiceCallResponse,
-};
-use crate::model::core::gui::message::GuiMessage;
-use crate::model::error::actor::ActorError;
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, ExecutionDisplay, FolderSelectionMode};
 use dashmap::DashMap;

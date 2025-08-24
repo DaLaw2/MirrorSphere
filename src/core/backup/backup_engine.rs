@@ -1,14 +1,14 @@
 use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::core::gui::gui_message_handler::GuiMessageHandler;
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::io_manager::IOManager;
+use crate::interface::core::unit::Unit;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::core::backup::backup_execution::*;
-use crate::model::core::gui::message::GuiMessage;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
+use async_trait::async_trait;
 use crossbeam_queue::SegQueue;
 use dashmap::DashMap;
 use futures::future::join_all;
@@ -16,6 +16,7 @@ use macros::log;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::error;
@@ -24,7 +25,6 @@ use uuid::Uuid;
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
-    actor_system: Arc<ActorSystem>,
     progress_tracker: Arc<ProgressTracker>,
     executions: Arc<DashMap<Uuid, BackupExecution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
@@ -34,13 +34,11 @@ impl BackupEngine {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
-        actor_system: Arc<ActorSystem>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             app_config,
             io_manager,
-            actor_system,
             progress_tracker,
             executions: Arc::new(DashMap::new()),
             running_executions: Arc::new(DashMap::new()),
@@ -391,7 +389,8 @@ impl Worker {
         let destination_root = &execution.destination_path;
 
         let source_path = current_path;
-        let destination_path = self.calculate_destination_path(source_path, source_root, destination_root)?;
+        let destination_path =
+            self.calculate_destination_path(source_path, source_root, destination_root)?;
         let destination_path = destination_path.as_path();
 
         let is_symlink = io_manager.is_symlink(source_path).await.unwrap_or(false);
@@ -644,5 +643,29 @@ impl Worker {
             .strip_prefix(source_root)
             .map_err(SystemError::UnexpectError)?;
         Ok(destination_root.join(relative_path))
+    }
+}
+
+#[async_trait]
+impl Unit for BackupEngine {
+    type Command = ();
+    type InternalCommand = ();
+    type Query = ();
+    type QueryResponse = ();
+
+    fn get_internal_channel(&self) -> UnboundedReceiver<Self::InternalCommand> {
+        todo!()
+    }
+
+    async fn handle_command(&self, command: Self::Command) -> Result<(), Error> {
+        todo!()
+    }
+
+    async fn handle_internal_command(&self, command: Self::InternalCommand) -> Result<(), Error> {
+        todo!()
+    }
+
+    async fn handle_query(&self, query: Self::Query) -> Result<Self::QueryResponse, Error> {
+        todo!()
     }
 }

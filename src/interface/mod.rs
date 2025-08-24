@@ -1,3 +1,4 @@
-pub mod actor;
+pub mod communication;
+pub mod core;
 pub mod file_system;
 pub mod repository;
