@@ -10,6 +10,9 @@ use std::any::Any;
 use std::sync::{Arc, OnceLock};
 use tokio::sync::oneshot::Receiver;
 use tokio::sync::{mpsc, oneshot};
+use crate::interface::communication::command::CommandHandler;
+use crate::interface::communication::query::QueryHandler;
+use crate::model::core::schedule::communication::{ScheduleCommand, ScheduleQuery, ScheduleQueryResponse};
 
 pub struct ScheduleService {
     schedule_manager: Arc<ScheduleManager>,
@@ -22,18 +25,16 @@ impl ScheduleService {
     pub async fn init(
         app_config: Arc<AppConfig>,
         database_manager: Arc<DatabaseManager>,
-        actor_system: Arc<ActorSystem>,
     ) -> Result<(), Error> {
         let schedule_manager =
-            Arc::new(ScheduleManager::new(database_manager, actor_system.clone()).await?);
-        let schedule_timer = Arc::new(ScheduleTimer::new(app_config, actor_system.clone()));
+            Arc::new(ScheduleManager::new(database_manager).await?);
+        let schedule_timer = Arc::new(ScheduleTimer::new(app_config));
         let schedule_service = Self {
             schedule_manager,
             schedule_timer,
             timer_refresh: OnceLock::new(),
             shutdowns: Vec::new(),
         };
-        actor_system.spawn(schedule_service).await;
         Ok(())
     }
 
@@ -46,22 +47,19 @@ impl ScheduleService {
 
 #[async_trait]
 impl Service for ScheduleService {
-    async fn run_message_loop(self: Arc<Self>, shutdown_rx: Receiver<()>) {
+    async fn process_internal_command(self: Arc<Self>, shutdown_rx: Receiver<()>) {
         todo!()
     }
 }
 
-#[async_trait]
-impl CommunicationCapable for ScheduleService {
-    fn register_handlers(&self, comm: &CommunicationManager) {
+impl CommandHandler<ScheduleCommand> for ScheduleService {
+    async fn handle_command(&self, command: ScheduleCommand) -> Result<(), Error> {
         todo!()
     }
+}
 
-    async fn handle_command(&self, command: Box<dyn Any + Send>) -> Result<(), Error> {
-        todo!()
-    }
-
-    async fn handle_query(&self, query: Box<dyn Any + Send>) -> Result<Box<dyn Any + Send>, Error> {
+impl QueryHandler<ScheduleQuery> for ScheduleService {
+    async fn handle_query(&self, query: ScheduleQuery) -> Result<ScheduleQueryResponse, Error> {
         todo!()
     }
 }

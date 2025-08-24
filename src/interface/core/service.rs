@@ -12,5 +12,5 @@ pub trait Service {
         shutdown_tx
     }
 
-    async fn run_message_loop(self: Arc<Self>, shutdown_rx: oneshot::Receiver<()>);
+    async fn process_internal_command(self: Arc<Self>, shutdown_rx: oneshot::Receiver<()>);
 }

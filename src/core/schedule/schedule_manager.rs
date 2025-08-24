@@ -6,18 +6,21 @@ use crate::model::error::Error;
 use chrono::{Duration, Months, Utc};
 use dashmap::DashMap;
 use std::sync::Arc;
+use async_trait::async_trait;
+use tokio::sync::mpsc::UnboundedReceiver;
 use uuid::Uuid;
+use crate::interface::communication::message::Message;
+use crate::interface::core::unit::Unit;
+use crate::model::core::schedule::communication::{ScheduleCommand, ScheduleInternalCommand, ScheduleQuery, ScheduleQueryResponse};
 
 pub struct ScheduleManager {
     database_manager: Arc<DatabaseManager>,
-    actor_system: Arc<ActorSystem>,
     schedules: DashMap<Uuid, BackupSchedule>,
 }
 
 impl ScheduleManager {
     pub async fn new(
         database_manager: Arc<DatabaseManager>,
-        actor_system: Arc<ActorSystem>,
     ) -> Result<Self, Error> {
         let schedules = DashMap::new();
         let database_schedules = database_manager.get_all_backup_schedules().await?;
@@ -139,5 +142,59 @@ impl ScheduleManager {
         };
         schedule.last_run_time = Some(now);
         schedule.next_run_time = new_next_run_time;
+    }
+}
+
+#[async_trait]
+impl Unit for ScheduleManager {
+    type Command = ScheduleCommand;
+    type InternalCommand = ScheduleInternalCommand;
+    type Query = ScheduleQuery;
+
+    fn get_internal_channel(&self) -> UnboundedReceiver<Self::InternalCommand> {
+        todo!()
+    }
+
+    async fn handle_command(&self, command: Self::Command) -> Result<(), Error> {
+        match command {
+            ScheduleCommand::AddSchedule(schedule) => {
+                self.create_schedule(schedule).await?;
+            }
+            ScheduleCommand::ModifySchedule(schedule) => {
+                self.modify_schedule(schedule).await?;
+            }
+            ScheduleCommand::RemoveSchedule(uuid) => {
+                self.remove_schedule(uuid).await?;
+            }
+            ScheduleCommand::ActivateSchedule(uuid) => {
+                self.active_schedule(uuid).await?;
+            }
+            ScheduleCommand::PauseSchedule(uuid) => {
+                self.pause_schedule(uuid).await?;
+            }
+            ScheduleCommand::DisableSchedule(uuid) => {
+                self.disable_schedule(uuid).await?;
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_internal_command(&self, command: Self::InternalCommand) -> Result<(), Error> {
+        match command {
+            ScheduleInternalCommand::TimerNotify => {
+                self.execute_ready_schedule().await?;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_query(&self, query: Self::Query) -> Result<<Self::Query as Message>::Response, Error> {
+        match query {
+            ScheduleQuery::GetSchedules => {
+                let executions = self.get_all_schedules().await;
+                Ok(ScheduleQueryResponse::GetSchedules(executions))
+            }
+        }
     }
 }

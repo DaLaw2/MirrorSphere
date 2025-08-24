@@ -5,6 +5,9 @@ use crate::core::infrastructure::io_manager::IOManager;
 use crate::interface::core::unit::Unit;
 use crate::interface::file_system::FileSystemTrait;
 use crate::model::core::backup::backup_execution::*;
+use crate::model::core::backup::communication::{
+    BackupCommand, BackupInternalCommand, BackupQuery, BackupQueryResponse,
+};
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
@@ -79,14 +82,14 @@ impl BackupEngine {
         self.executions.remove(uuid);
     }
 
-    pub async fn start_execution(&self, uuid: Uuid) -> Result<(), Error> {
-        if self.running_executions.contains_key(&uuid) {
+    pub async fn start_execution(&self, uuid: &Uuid) -> Result<(), Error> {
+        if self.running_executions.contains_key(uuid) {
             Err(TaskError::IllegalRunState)?
         }
 
         let mut ref_mut = self
             .executions
-            .get_mut(&uuid)
+            .get_mut(uuid)
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Pending {
@@ -98,14 +101,14 @@ impl BackupEngine {
         let execution = execution.clone();
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move { execution_runner.run(execution, rx, false).await });
-        self.running_executions.insert(uuid, (tx, handle));
+        self.running_executions.insert(*uuid, (tx, handle));
         Ok(())
     }
 
-    pub async fn suspend_execution(&self, uuid: Uuid) -> Result<(), Error> {
+    pub async fn suspend_execution(&self, uuid: &Uuid) -> Result<(), Error> {
         let mut ref_mut = self
             .executions
-            .get_mut(&uuid)
+            .get_mut(uuid)
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Running {
@@ -116,7 +119,7 @@ impl BackupEngine {
 
         let (_, (shutdown, handle)) = self
             .running_executions
-            .remove(&uuid)
+            .remove(uuid)
             .ok_or(TaskError::ExecutionNotFound)?;
         shutdown
             .send(())
@@ -125,14 +128,14 @@ impl BackupEngine {
         Ok(())
     }
 
-    pub async fn resume_execution(&self, uuid: Uuid) -> Result<(), Error> {
+    pub async fn resume_execution(&self, uuid: &Uuid) -> Result<(), Error> {
         if self.running_executions.contains_key(&uuid) {
             Err(TaskError::IllegalRunState)?
         }
 
         let mut ref_mut = self
             .executions
-            .get_mut(&uuid)
+            .get_mut(uuid)
             .ok_or(TaskError::ExecutionNotFound)?;
         let execution = ref_mut.value_mut();
         if execution.state != BackupState::Suspended {
@@ -144,7 +147,7 @@ impl BackupEngine {
         let execution = execution.clone();
         let (tx, rx) = oneshot::channel();
         let handle = tokio::spawn(async move { execution_runner.run(execution, rx, true).await });
-        self.running_executions.insert(uuid, (tx, handle));
+        self.running_executions.insert(*uuid, (tx, handle));
         Ok(())
     }
 
@@ -648,24 +651,45 @@ impl Worker {
 
 #[async_trait]
 impl Unit for BackupEngine {
-    type Command = ();
-    type InternalCommand = ();
-    type Query = ();
-    type QueryResponse = ();
+    type Command = BackupCommand;
+    type InternalCommand = BackupInternalCommand;
+    type Query = BackupQuery;
 
     fn get_internal_channel(&self) -> UnboundedReceiver<Self::InternalCommand> {
-        todo!()
+        unimplemented!()
     }
 
     async fn handle_command(&self, command: Self::Command) -> Result<(), Error> {
-        todo!()
+        match command {
+            BackupCommand::AddExecution(execution) => {
+                self.add_execution(execution).await;
+            }
+            BackupCommand::RemoveExecution(uuid) => {
+                self.remove_execution(&uuid).await;
+            }
+            BackupCommand::StartExecution(uuid) => {
+                self.start_execution(&uuid).await?;
+            }
+            BackupCommand::SuspendExecution(uuid) => {
+                self.suspend_execution(&uuid).await?;
+            }
+            BackupCommand::ResumeExecution(uuid) => {
+                self.resume_execution(&uuid).await?;
+            }
+        }
+        Ok(())
     }
 
     async fn handle_internal_command(&self, command: Self::InternalCommand) -> Result<(), Error> {
-        todo!()
+        match command {}
     }
 
-    async fn handle_query(&self, query: Self::Query) -> Result<Self::QueryResponse, Error> {
-        todo!()
+    async fn handle_query(&self, query: Self::Query) -> Result<BackupQueryResponse, Error> {
+        match query {
+            BackupQuery::GetExecutions => {
+                let executions = self.get_all_executions();
+                Ok(BackupQueryResponse::GetExecutions(executions))
+            }
+        }
     }
 }
