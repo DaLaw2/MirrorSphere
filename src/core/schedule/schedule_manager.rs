@@ -4,8 +4,8 @@ use crate::interface::communication::command::CommandHandler;
 use crate::interface::communication::query::QueryHandler;
 use crate::interface::repository::schedule::ScheduleRepository;
 use crate::model::core::backup::communication::BackupCommand;
-use crate::model::core::schedule::schedule::*;
 use crate::model::core::schedule::communication::*;
+use crate::model::core::schedule::schedule::*;
 use crate::model::error::Error;
 use async_trait::async_trait;
 use chrono::{Duration, Months, Utc};
@@ -55,6 +55,9 @@ impl ScheduleManager {
             .create_backup_schedule(&schedule)
             .await?;
         self.schedules.insert(schedule.uuid, schedule);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
@@ -63,12 +66,18 @@ impl ScheduleManager {
             .modify_backup_schedule(&schedule)
             .await?;
         self.schedules.insert(schedule.uuid, schedule);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
     pub async fn remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         self.database_manager.remove_backup_schedule(uuid).await?;
         self.schedules.remove(&uuid);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
@@ -79,6 +88,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }
@@ -90,6 +102,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }
@@ -101,6 +116,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }

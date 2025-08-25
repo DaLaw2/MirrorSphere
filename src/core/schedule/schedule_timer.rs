@@ -9,9 +9,8 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use std::sync::Arc;
 use tokio::select;
-use tokio::sync::oneshot::Receiver;
 use tokio::sync::Notify;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::oneshot;
 use tokio::time::sleep;
 use tracing::error;
 
@@ -75,7 +74,7 @@ impl ScheduleTimer {
 
 #[async_trait]
 impl Runnable for ScheduleTimer {
-    async fn run_impl(self: Arc<Self>, mut shutdown_rx: Receiver<()>) {
+    async fn run_impl(self: Arc<Self>, mut shutdown_rx: oneshot::Receiver<()>) {
         let communication_manager = self.communication_manager.clone();
 
         loop {

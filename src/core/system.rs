@@ -74,7 +74,12 @@ impl System {
         gui_manager.start().await
     }
 
-    pub fn shutdown(&self) {}
+    pub async fn shutdown(&self) {
+        self.backup_service.shutdown().await;
+        while let Some(shutdown) = self.shutdowns.pop() {
+            let _ = shutdown.send(());
+        }
+    }
 
     fn elevate_privileges() -> Result<(), Error> {
         #[cfg(not(debug_assertions))]

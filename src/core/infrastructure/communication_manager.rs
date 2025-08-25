@@ -121,30 +121,6 @@ impl CommunicationManager {
             .ok_or(MiscError::TypeNotRegistered)?;
         broadcaster.broadcast_event(Box::new(event))
     }
-
-    pub fn has_command_handler<C: Command + 'static>(&self) -> bool {
-        self.command_handlers.contains_key(&TypeId::of::<C>())
-    }
-
-    pub fn has_query_handler<Q: Query + 'static>(&self) -> bool {
-        self.query_handlers.contains_key(&TypeId::of::<Q>())
-    }
-
-    pub fn has_event_type<E: Event + 'static>(&self) -> bool {
-        self.event_broadcasters.contains_key(&TypeId::of::<E>())
-    }
-
-    pub fn clear_command_handlers(&self) {
-        self.command_handlers.clear();
-    }
-
-    pub fn clear_query_handlers(&self) {
-        self.query_handlers.clear();
-    }
-
-    pub fn clear_event_types(&self) {
-        self.event_broadcasters.clear();
-    }
 }
 
 pub struct ServiceRegistrar<S> {

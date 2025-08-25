@@ -13,6 +13,6 @@ mod utils;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let system = System::new().await?;
     system.run().await?;
-    system.shutdown();
+    system.shutdown().await;
     Ok(())
 }

@@ -29,4 +29,8 @@ impl BackupService {
         let backup_engine = self.backup_engine.clone();
         backup_engine.register_services().await;
     }
+
+    pub async fn shutdown(&self) {
+        self.backup_engine.stop_all_executions().await;
+    }
 }

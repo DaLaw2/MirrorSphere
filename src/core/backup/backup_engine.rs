@@ -18,11 +18,11 @@ use macros::log;
 use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::error;
 use uuid::Uuid;
+use crate::model::core::gui::communication::ExecutionErrors;
 
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
@@ -56,7 +56,7 @@ impl BackupEngine {
             .with_service(self)
             .command::<BackupCommand>()
             .query::<BackupQuery>()
-            .event::<ExecutionErrorEvent>()
+            .event::<ExecutionErrors>()
             .build();
     }
 
@@ -261,13 +261,13 @@ impl ExecutionRunner {
                         next_level.extend(worker_next_level);
                         if !worker_errors.is_empty() {
                             errors.extend(worker_errors.clone());
-                            let event = ExecutionErrorEvent {
+                            let event = ExecutionErrors {
                                 uuid: execution.uuid,
                                 errors: worker_errors,
                             };
                             if let Err(err) = self
                                 .communication_manager
-                                .publish_event::<ExecutionErrorEvent>(event)
+                                .publish_event::<ExecutionErrors>(event)
                                 .await
                             {
                                 error!("{}", err);

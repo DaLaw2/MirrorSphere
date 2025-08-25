@@ -1,4 +1,3 @@
-use crate::core::backup::backup_service::BackupService;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::model::core::backup::communication::{BackupCommand, BackupQuery, BackupQueryResponse};
@@ -12,7 +11,7 @@ use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
 use tracing::error;
