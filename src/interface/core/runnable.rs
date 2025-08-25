@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 #[async_trait]
-pub trait Service {
+pub trait Runnable {
     async fn run(self: Arc<Self>) -> oneshot::Sender<()> {
         let (shutdown_tx, shutdown_rx) = oneshot::channel();
 
@@ -12,5 +12,5 @@ pub trait Service {
         shutdown_tx
     }
 
-    async fn process_internal_command(self: Arc<Self>, shutdown_rx: oneshot::Receiver<()>);
+    async fn run_impl(self: Arc<Self>, shutdown_rx: oneshot::Receiver<()>);
 }

@@ -1,4 +1,4 @@
-use crate::model::core::backup::backup_execution::*;
+use crate::model::core::backup::execution::*;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ pub enum ScheduleInterval {
 }
 
 #[derive(Debug, Clone)]
-pub struct BackupSchedule {
+pub struct Schedule {
     pub uuid: Uuid,
     pub name: String,
     pub state: ScheduleState,
@@ -36,9 +36,9 @@ pub struct BackupSchedule {
     pub updated_at: NaiveDateTime,
 }
 
-impl BackupSchedule {
-    pub fn to_execution(&self) -> BackupExecution {
-        BackupExecution {
+impl Schedule {
+    pub fn to_execution(&self) -> Execution {
+        Execution {
             uuid: self.uuid,
             state: BackupState::Pending,
             source_path: self.source_path.clone(),

@@ -46,7 +46,7 @@ pub struct BackupOptions {
 }
 
 #[derive(Debug, Clone)]
-pub struct BackupExecution {
+pub struct Execution {
     pub uuid: Uuid,
     pub state: BackupState,
     pub source_path: PathBuf,

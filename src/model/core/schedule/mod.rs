@@ -1,2 +1,2 @@
-pub mod backup_schedule;
+pub mod schedule;
 pub mod communication;

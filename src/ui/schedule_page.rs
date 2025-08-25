@@ -1,7 +1,7 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::schedule::schedule_service::ScheduleService;
-use crate::model::core::backup::backup_execution::*;
-use crate::model::core::schedule::backup_schedule::*;
+use crate::model::core::backup::execution::*;
+use crate::model::core::schedule::schedule::*;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
 use egui_file_dialog::FileDialog;
@@ -18,7 +18,7 @@ pub struct SchedulePage {
 
     schedule_service_ref: ActorRef<ScheduleServiceMessage>,
 
-    schedules: Vec<BackupSchedule>,
+    schedules: Vec<Schedule>,
 
     new_schedule_name: String,
     new_schedule_source: String,
@@ -88,7 +88,7 @@ impl SchedulePage {
         }
     }
 
-    fn handle_add_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    fn handle_add_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         block_on(async {
             let backup_actor_ref = self
                 .actor_system
@@ -101,7 +101,7 @@ impl SchedulePage {
         })
     }
 
-    fn handle_modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    fn handle_modify_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         block_on(async {
             let backup_actor_ref = self
                 .actor_system
@@ -221,7 +221,7 @@ impl SchedulePage {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    let schedules_to_show: Vec<BackupSchedule> = self
+                    let schedules_to_show: Vec<Schedule> = self
                         .schedules
                         .iter()
                         .filter(|schedule| {
@@ -249,7 +249,7 @@ impl SchedulePage {
         self.draw_schedule_details_window(ctx);
     }
 
-    fn draw_schedule_item(&mut self, ui: &mut egui::Ui, schedule: &BackupSchedule) {
+    fn draw_schedule_item(&mut self, ui: &mut egui::Ui, schedule: &Schedule) {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .inner_margin(8.0)
@@ -506,7 +506,7 @@ impl SchedulePage {
                                 }
                             };
 
-                            let schedule = BackupSchedule {
+                            let schedule = Schedule {
                                 uuid: Uuid::new_v4(),
                                 name: self.new_schedule_name.clone(),
                                 state: ScheduleState::Active,

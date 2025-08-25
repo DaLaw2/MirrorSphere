@@ -1,5 +1,5 @@
 use crate::core::infrastructure::database_manager::DatabaseManager;
-use crate::model::core::schedule::backup_schedule::BackupSchedule;
+use crate::model::core::schedule::schedule::Schedule;
 use crate::model::error::Error;
 use crate::model::error::database::DatabaseError;
 use crate::model::error::misc::MiscError;
@@ -8,11 +8,11 @@ use uuid::Uuid;
 
 pub trait ScheduleRepository {
     async fn create_backup_schedule_table(&self) -> Result<(), Error>;
-    async fn create_backup_schedule(&self, backup_schedule: &BackupSchedule) -> Result<(), Error>;
-    async fn modify_backup_schedule(&self, backup_schedule: &BackupSchedule) -> Result<(), Error>;
+    async fn create_backup_schedule(&self, backup_schedule: &Schedule) -> Result<(), Error>;
+    async fn modify_backup_schedule(&self, backup_schedule: &Schedule) -> Result<(), Error>;
     async fn remove_backup_schedule(&self, uuid: Uuid) -> Result<(), Error>;
-    async fn get_backup_schedule(&self, uuid: Uuid) -> Result<Option<BackupSchedule>, Error>;
-    async fn get_all_backup_schedules(&self) -> Result<Vec<BackupSchedule>, Error>;
+    async fn get_backup_schedule(&self, uuid: Uuid) -> Result<Option<Schedule>, Error>;
+    async fn get_all_backup_schedules(&self) -> Result<Vec<Schedule>, Error>;
 }
 
 impl ScheduleRepository for DatabaseManager {
@@ -43,7 +43,7 @@ impl ScheduleRepository for DatabaseManager {
         Ok(())
     }
 
-    async fn create_backup_schedule(&self, backup_schedule: &BackupSchedule) -> Result<(), Error> {
+    async fn create_backup_schedule(&self, backup_schedule: &Schedule) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query(
             r#"
@@ -99,7 +99,7 @@ impl ScheduleRepository for DatabaseManager {
         Ok(())
     }
 
-    async fn modify_backup_schedule(&self, backup_schedule: &BackupSchedule) -> Result<(), Error> {
+    async fn modify_backup_schedule(&self, backup_schedule: &Schedule) -> Result<(), Error> {
         let pool = self.get_pool();
         sqlx::query(
             r#"
@@ -164,7 +164,7 @@ impl ScheduleRepository for DatabaseManager {
         Ok(())
     }
 
-    async fn get_backup_schedule(&self, uuid: Uuid) -> Result<Option<BackupSchedule>, Error> {
+    async fn get_backup_schedule(&self, uuid: Uuid) -> Result<Option<Schedule>, Error> {
         let pool = self.get_pool();
         let row = sqlx::query(
             r#"
@@ -215,7 +215,7 @@ impl ScheduleRepository for DatabaseManager {
             let interval = serde_json::from_str(&interval_str)
                 .map_err(MiscError::DeserializeError)?;
 
-            Ok(Some(BackupSchedule {
+            Ok(Some(Schedule {
                 uuid,
                 name: row.get("name"),
                 state,
@@ -235,7 +235,7 @@ impl ScheduleRepository for DatabaseManager {
         }
     }
 
-    async fn get_all_backup_schedules(&self) -> Result<Vec<BackupSchedule>, Error> {
+    async fn get_all_backup_schedules(&self) -> Result<Vec<Schedule>, Error> {
         let pool = self.get_pool();
         let rows = sqlx::query(
             r#"
@@ -285,7 +285,7 @@ impl ScheduleRepository for DatabaseManager {
             let interval = serde_json::from_str(&interval_str)
                 .map_err(MiscError::DeserializeError)?;
 
-            schedules.push(BackupSchedule {
+            schedules.push(Schedule {
                 uuid,
                 name: row.get("name"),
                 state,

@@ -1,13 +1,13 @@
 use crate::core::backup::progress_tracker::ProgressTracker;
 use crate::core::gui::gui_message_handler::GuiMessageHandler;
 use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::core::infrastructure::io_manager::IOManager;
-use crate::interface::core::unit::Unit;
-use crate::interface::file_system::FileSystemTrait;
-use crate::model::core::backup::backup_execution::*;
-use crate::model::core::backup::communication::{
-    BackupCommand, BackupInternalCommand, BackupQuery, BackupQueryResponse,
-};
+use crate::interface::communication::command::CommandHandler;
+use crate::interface::communication::query::QueryHandler;
+use crate::interface::core::file_system::FileSystemTrait;
+use crate::model::core::backup::execution::*;
+use crate::model::core::backup::communication::*;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use crate::model::error::Error;
@@ -28,8 +28,9 @@ use uuid::Uuid;
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
+    communication_manager: Arc<CommunicationManager>,
     progress_tracker: Arc<ProgressTracker>,
-    executions: Arc<DashMap<Uuid, BackupExecution>>,
+    executions: Arc<DashMap<Uuid, Execution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
 }
 
@@ -37,15 +38,27 @@ impl BackupEngine {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
+        communication_manager: Arc<CommunicationManager>,
         progress_tracker: Arc<ProgressTracker>,
     ) -> Self {
         Self {
             app_config,
             io_manager,
+            communication_manager,
             progress_tracker,
             executions: Arc::new(DashMap::new()),
             running_executions: Arc::new(DashMap::new()),
         }
+    }
+
+    pub async fn register_services(self: Arc<Self>) {
+        let communication_manager = self.communication_manager.clone();
+        communication_manager
+            .with_service(self)
+            .command::<BackupCommand>()
+            .query::<BackupQuery>()
+            .event::<ExecutionErrorEvent>()
+            .build();
     }
 
     pub async fn stop_all_executions(&self) {
@@ -67,14 +80,14 @@ impl BackupEngine {
         }
     }
 
-    pub fn get_all_executions(&self) -> Vec<(Uuid, BackupExecution)> {
+    pub fn get_all_executions(&self) -> Vec<(Uuid, Execution)> {
         self.executions
             .iter()
             .map(|entry| (*entry.key(), entry.value().clone()))
             .collect()
     }
 
-    pub async fn add_execution(&self, execution: BackupExecution) {
+    pub async fn add_execution(&self, execution: Execution) {
         self.executions.insert(execution.uuid, execution);
     }
 
@@ -172,9 +185,9 @@ impl BackupEngine {
 struct ExecutionRunner {
     app_config: Arc<AppConfig>,
     io_manager: Arc<IOManager>,
-    actor_system: Arc<ActorSystem>,
+    communication_manager: Arc<CommunicationManager>,
     progress_tracker: Arc<ProgressTracker>,
-    executions: Arc<DashMap<Uuid, BackupExecution>>,
+    executions: Arc<DashMap<Uuid, Execution>>,
     running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
 }
 
@@ -182,27 +195,22 @@ impl ExecutionRunner {
     pub fn new(
         app_config: Arc<AppConfig>,
         io_manager: Arc<IOManager>,
-        actor_system: Arc<ActorSystem>,
+        communication_manager: Arc<CommunicationManager>,
         progress_tracker: Arc<ProgressTracker>,
-        executions: Arc<DashMap<Uuid, BackupExecution>>,
+        executions: Arc<DashMap<Uuid, Execution>>,
         running_executions: Arc<DashMap<Uuid, (oneshot::Sender<()>, JoinHandle<()>)>>,
     ) -> Self {
         Self {
             app_config,
             io_manager,
-            actor_system,
+            communication_manager,
             progress_tracker,
             executions,
             running_executions,
         }
     }
 
-    async fn run(
-        &self,
-        execution: BackupExecution,
-        mut shutdown: oneshot::Receiver<()>,
-        resume: bool,
-    ) {
+    async fn run(&self, execution: Execution, mut shutdown: oneshot::Receiver<()>, resume: bool) {
         let config = &self.app_config;
         let progress_tracker = &self.progress_tracker;
 
@@ -254,17 +262,16 @@ impl ExecutionRunner {
                         next_level.extend(worker_next_level);
                         if !worker_errors.is_empty() {
                             errors.extend(worker_errors.clone());
-                            if let Some(gui_ref) = self.actor_system.actor_of::<GuiMessageHandler>()
+                            let event = ExecutionErrorEvent {
+                                uuid: execution.uuid,
+                                errors: worker_errors,
+                            };
+                            if let Err(err) = self
+                                .communication_manager
+                                .publish_event::<ExecutionErrorEvent>(event)
+                                .await
                             {
-                                if let Err(err) = gui_ref
-                                    .tell(GuiMessage::ExecutionErrors {
-                                        uuid: execution.uuid,
-                                        errors: worker_errors,
-                                    })
-                                    .await
-                                {
-                                    error!("{}", err);
-                                }
+                                error!("{}", err);
                             }
                         }
                     }
@@ -318,7 +325,7 @@ impl Worker {
 
     async fn run(
         &self,
-        execution: BackupExecution,
+        execution: Execution,
         global_queue: Arc<SegQueue<PathBuf>>,
         mut shutdown: oneshot::Receiver<()>,
     ) -> (Vec<PathBuf>, Vec<Error>) {
@@ -383,7 +390,7 @@ impl Worker {
 
     async fn process_entry(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         current_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
         let io_manager = &self.io_manager;
@@ -415,7 +422,7 @@ impl Worker {
 
     async fn backup_directory(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         source_path: &Path,
         destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
@@ -440,7 +447,7 @@ impl Worker {
 
     async fn backup_file(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         source_path: &Path,
         destination_path: &Path,
     ) -> Result<Option<PathBuf>, Error> {
@@ -471,7 +478,7 @@ impl Worker {
     #[inline(always)]
     async fn process_symlink(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         source_path: &Path,
         destination_path: &Path,
     ) -> Result<(), Error> {
@@ -486,7 +493,7 @@ impl Worker {
 
     async fn follow_symlink(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         source_path: &Path,
         destination_path: &Path,
     ) -> Result<(), Error> {
@@ -543,7 +550,7 @@ impl Worker {
 
     async fn copy_symlink(
         &self,
-        execution: &BackupExecution,
+        execution: &Execution,
         source_path: &Path,
         destination_path: &Path,
     ) -> Result<(), Error> {
@@ -650,16 +657,8 @@ impl Worker {
 }
 
 #[async_trait]
-impl Unit for BackupEngine {
-    type Command = BackupCommand;
-    type InternalCommand = BackupInternalCommand;
-    type Query = BackupQuery;
-
-    fn get_internal_channel(&self) -> UnboundedReceiver<Self::InternalCommand> {
-        unimplemented!()
-    }
-
-    async fn handle_command(&self, command: Self::Command) -> Result<(), Error> {
+impl CommandHandler<BackupCommand> for BackupEngine {
+    async fn handle_command(&self, command: BackupCommand) -> Result<(), Error> {
         match command {
             BackupCommand::AddExecution(execution) => {
                 self.add_execution(execution).await;
@@ -679,12 +678,11 @@ impl Unit for BackupEngine {
         }
         Ok(())
     }
+}
 
-    async fn handle_internal_command(&self, command: Self::InternalCommand) -> Result<(), Error> {
-        match command {}
-    }
-
-    async fn handle_query(&self, query: Self::Query) -> Result<BackupQueryResponse, Error> {
+#[async_trait]
+impl QueryHandler<BackupQuery> for BackupEngine {
+    async fn handle_query(&self, query: BackupQuery) -> Result<BackupQueryResponse, Error> {
         match query {
             BackupQuery::GetExecutions => {
                 let executions = self.get_all_executions();

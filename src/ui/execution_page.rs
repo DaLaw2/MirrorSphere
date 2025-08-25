@@ -1,6 +1,6 @@
 use crate::core::backup::backup_service::BackupService;
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::model::core::backup::backup_execution::*;
+use crate::model::core::backup::execution::*;
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, ExecutionDisplay, FolderSelectionMode};
 use dashmap::DashMap;
@@ -137,7 +137,7 @@ impl ExecutionPage {
         }
     }
 
-    fn handle_add_execution(&mut self, execution: BackupExecution) -> Result<(), Error> {
+    fn handle_add_execution(&mut self, execution: Execution) -> Result<(), Error> {
         block_on(async {
             let backup_actor_ref = self
                 .actor_system
@@ -537,7 +537,7 @@ impl ExecutionPage {
                                 }
                             };
 
-                            let execution = BackupExecution {
+                            let execution = Execution {
                                 uuid: Uuid::new_v4(),
                                 state: BackupState::Pending,
                                 source_path: PathBuf::from(&self.new_task_source),

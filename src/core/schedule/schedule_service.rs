@@ -3,63 +3,47 @@ use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::core::infrastructure::database_manager::DatabaseManager;
 use crate::core::schedule::schedule_manager::ScheduleManager;
 use crate::core::schedule::schedule_timer::ScheduleTimer;
-use crate::interface::core::service::Service;
+use crate::interface::core::runnable::Runnable;
 use crate::model::error::Error;
 use async_trait::async_trait;
-use std::any::Any;
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tokio::sync::oneshot::Receiver;
-use tokio::sync::{mpsc, oneshot};
-use crate::interface::communication::command::CommandHandler;
-use crate::interface::communication::query::QueryHandler;
-use crate::model::core::schedule::communication::{ScheduleCommand, ScheduleQuery, ScheduleQueryResponse};
 
 pub struct ScheduleService {
     schedule_manager: Arc<ScheduleManager>,
     schedule_timer: Arc<ScheduleTimer>,
-    timer_refresh: OnceLock<mpsc::UnboundedSender<()>>,
-    shutdowns: Vec<oneshot::Sender<()>>,
 }
 
 impl ScheduleService {
-    pub async fn init(
+    pub async fn new(
         app_config: Arc<AppConfig>,
         database_manager: Arc<DatabaseManager>,
-    ) -> Result<(), Error> {
+        communication_manager: Arc<CommunicationManager>,
+    ) -> Result<Self, Error> {
         let schedule_manager =
-            Arc::new(ScheduleManager::new(database_manager).await?);
-        let schedule_timer = Arc::new(ScheduleTimer::new(app_config));
+            Arc::new(ScheduleManager::new(database_manager, communication_manager.clone()).await?);
+        let schedule_timer = Arc::new(ScheduleTimer::new(app_config, communication_manager));
         let schedule_service = Self {
             schedule_manager,
             schedule_timer,
-            timer_refresh: OnceLock::new(),
-            shutdowns: Vec::new(),
         };
-        Ok(())
+        Ok(schedule_service)
     }
 
-    pub fn refresh_timer(&self) {
-        if let Some(timer_refresh) = self.timer_refresh.get() {
-            let _ = timer_refresh.send(());
-        }
+    pub async fn register_services(&self) {
+        let schedule_manager = self.schedule_manager.clone();
+        let schedule_timer = self.schedule_timer.clone();
+        schedule_manager.register_services().await;
+        schedule_timer.register_services().await;
     }
 }
 
 #[async_trait]
-impl Service for ScheduleService {
-    async fn process_internal_command(self: Arc<Self>, shutdown_rx: Receiver<()>) {
-        todo!()
-    }
-}
-
-impl CommandHandler<ScheduleCommand> for ScheduleService {
-    async fn handle_command(&self, command: ScheduleCommand) -> Result<(), Error> {
-        todo!()
-    }
-}
-
-impl QueryHandler<ScheduleQuery> for ScheduleService {
-    async fn handle_query(&self, query: ScheduleQuery) -> Result<ScheduleQueryResponse, Error> {
-        todo!()
+impl Runnable for ScheduleService {
+    async fn run_impl(self: Arc<Self>, shutdown_rx: Receiver<()>) {
+        let schedule_timer = self.schedule_timer.clone();
+        let timer_shutdown = schedule_timer.run().await;
+        let _ = shutdown_rx.await;
+        let _ = timer_shutdown.send(());
     }
 }

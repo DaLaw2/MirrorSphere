@@ -1,6 +1,7 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::interface::communication::command::*;
 use crate::interface::communication::event::Event;
+use crate::interface::communication::event::EventBroadcaster;
 use crate::interface::communication::query::*;
 use crate::model::core::infrastructure::event_broadcaster::TypedEventBroadcaster;
 use crate::model::error::misc::MiscError;
@@ -9,7 +10,6 @@ use dashmap::DashMap;
 use std::any::{Any, TypeId};
 use std::sync::Arc;
 use tokio::sync::broadcast;
-use crate::interface::communication::event::EventBroadcaster;
 
 pub struct CommunicationManager {
     app_config: Arc<AppConfig>,
@@ -40,22 +40,28 @@ impl CommunicationManager {
         let type_id = TypeId::of::<E>();
         let (tx, _) = broadcast::channel(channel_capacity);
         let broadcaster = TypedEventBroadcaster { sender: tx };
-        self.event_broadcasters.insert(type_id, Box::new(broadcaster));
+        self.event_broadcasters
+            .insert(type_id, Box::new(broadcaster));
     }
 
     pub async fn publish_event<E: Event + 'static>(&self, event: E) -> Result<(), Error> {
         let type_id = TypeId::of::<E>();
-        let broadcaster = self.event_broadcasters.get(&type_id)
+        let broadcaster = self
+            .event_broadcasters
+            .get(&type_id)
             .ok_or(MiscError::TypeNotRegistered)?;
         broadcaster.broadcast_event(Box::new(event))
     }
 
     pub fn subscribe_event<E: Event + 'static>(&self) -> Result<broadcast::Receiver<E>, Error> {
         let type_id = TypeId::of::<E>();
-        let broadcaster = self.event_broadcasters.get(&type_id)
+        let broadcaster = self
+            .event_broadcasters
+            .get(&type_id)
             .ok_or(MiscError::TypeNotRegistered)?;
         let receiver_box = broadcaster.subscribe_typed();
-        let receiver = *receiver_box.downcast::<broadcast::Receiver<E>>()
+        let receiver = *receiver_box
+            .downcast::<broadcast::Receiver<E>>()
             .map_err(|_| MiscError::TypeMismatch)?;
         Ok(receiver)
     }
@@ -151,7 +157,7 @@ impl<S: Send + Sync + 'static> ServiceRegistrar<S> {
         Self { service, comm }
     }
 
-    pub fn command<C: Command + 'static>(&self) -> &Self
+    pub fn command<C: Command + 'static>(self) -> Self
     where
         S: CommandHandler<C>,
     {
@@ -160,7 +166,7 @@ impl<S: Send + Sync + 'static> ServiceRegistrar<S> {
         self
     }
 
-    pub fn query<Q: Query + 'static>(&self) -> &Self
+    pub fn query<Q: Query + 'static>(self) -> Self
     where
         S: QueryHandler<Q>,
     {
@@ -169,7 +175,7 @@ impl<S: Send + Sync + 'static> ServiceRegistrar<S> {
         self
     }
 
-    pub fn event<E: Event + 'static>(&self) -> &Self {
+    pub fn event<E: Event + 'static>(self) -> Self {
         self.comm.register_event_type::<E>();
         self
     }

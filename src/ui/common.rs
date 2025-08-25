@@ -1,4 +1,4 @@
-use crate::model::core::backup::backup_execution::BackupExecution;
+use crate::model::core::backup::execution::Execution;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PageType {
@@ -21,14 +21,14 @@ pub enum ComparisonModeSelection {
 
 #[derive(Debug, Clone)]
 pub struct ExecutionDisplay {
-    pub execution: BackupExecution,
+    pub execution: Execution,
     pub current_folder: String,
     pub processed_files: usize,
     pub error_count: usize,
 }
 
-impl From<BackupExecution> for ExecutionDisplay {
-    fn from(execution: BackupExecution) -> Self {
+impl From<Execution> for ExecutionDisplay {
+    fn from(execution: Execution) -> Self {
         Self {
             execution,
             current_folder: String::new(),

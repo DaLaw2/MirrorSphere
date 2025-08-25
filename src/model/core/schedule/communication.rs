@@ -2,44 +2,44 @@ use uuid::Uuid;
 use crate::interface::communication::command::Command;
 use crate::interface::communication::message::Message;
 use crate::interface::communication::query::Query;
-use crate::model::core::schedule::backup_schedule::BackupSchedule;
+use crate::model::core::schedule::schedule::Schedule;
 
-pub enum ScheduleCommand {
-    AddSchedule(BackupSchedule),
-    ModifySchedule(BackupSchedule),
+pub enum ScheduleManagerCommand {
+    AddSchedule(Schedule),
+    ModifySchedule(Schedule),
     RemoveSchedule(Uuid),
     ActivateSchedule(Uuid),
     PauseSchedule(Uuid),
     DisableSchedule(Uuid),
+    ExecuteReadySchedules,
 }
 
-impl Message for ScheduleCommand {
+impl Message for ScheduleManagerCommand {
     type Response = ();
 }
 
-impl Command for ScheduleCommand {}
+impl Command for ScheduleManagerCommand {}
 
-pub enum ScheduleInternalCommand {
-    TimerNotify,
-    RefreshTimer,
-}
-
-impl Message for ScheduleInternalCommand {
-    type Response = ();
-}
-
-impl Command for ScheduleInternalCommand {}
-
-pub enum ScheduleQuery {
+pub enum ScheduleManagerQuery {
     GetSchedules,
 }
 
-impl Message for ScheduleQuery {
-    type Response = ScheduleQueryResponse;
+impl Message for ScheduleManagerQuery {
+    type Response = ScheduleManagerQueryResponse;
 }
 
-impl Query for ScheduleQuery {}
+impl Query for ScheduleManagerQuery {}
 
-pub enum ScheduleQueryResponse {
-    GetSchedules(Vec<BackupSchedule>),
+pub enum ScheduleManagerQueryResponse {
+    GetSchedules(Vec<Schedule>),
 }
+
+pub enum ScheduleTimerCommand {
+    RefreshTimer
+}
+
+impl Message for ScheduleTimerCommand {
+    type Response = ();
+}
+
+impl Command for ScheduleTimerCommand {}

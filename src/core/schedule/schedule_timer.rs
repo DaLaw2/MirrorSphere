@@ -1,83 +1,53 @@
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::schedule::schedule_service::ScheduleService;
-use crate::model::core::schedule::backup_schedule::ScheduleState;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
+use crate::interface::communication::command::CommandHandler;
+use crate::interface::core::runnable::Runnable;
+use crate::model::core::schedule::communication::*;
+use crate::model::core::schedule::schedule::ScheduleState;
 use crate::model::error::Error;
+use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use std::sync::Arc;
 use tokio::select;
+use tokio::sync::oneshot::Receiver;
+use tokio::sync::Notify;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::sleep;
 use tracing::error;
 
 pub struct ScheduleTimer {
     app_config: Arc<AppConfig>,
-    actor_system: Arc<ActorSystem>,
+    communication_manager: Arc<CommunicationManager>,
+    refresh_notify: Arc<Notify>,
 }
 
 impl ScheduleTimer {
-    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Self {
+    pub fn new(
+        app_config: Arc<AppConfig>,
+        communication_manager: Arc<CommunicationManager>,
+    ) -> Self {
         ScheduleTimer {
             app_config,
-            actor_system,
+            communication_manager,
+            refresh_notify: Arc::new(Notify::new()),
         }
     }
 
-    pub async fn run(
-        self: Arc<Self>,
-    ) -> Result<(mpsc::UnboundedSender<()>, oneshot::Sender<()>), Error> {
-        let (refresh_tx, mut refresh_rx) = mpsc::unbounded_channel();
-        let (shutdown_tx, mut shutdown_rx) = oneshot::channel();
-        let service_ref = self
-            .actor_system
-            .actor_of::<ScheduleService>()
-            .ok_or(ActorError::ActorNotFound)?;
-        tokio::spawn(async move {
-            loop {
-                let mut sleep_time = match self.calculate_sleep_duration().await {
-                    Ok(Some(duration)) => duration,
-                    Ok(None) => Duration::seconds(self.app_config.default_wakeup_time),
-                    Err(err) => {
-                        error!("{}", err);
-                        Duration::seconds(self.app_config.default_wakeup_time)
-                    }
-                };
-                if sleep_time < Duration::seconds(0) {
-                    sleep_time = Duration::seconds(0);
-                }
-                select! {
-                    biased;
-                    _ = &mut shutdown_rx => { break; }
-                    _ = refresh_rx.recv() => { continue; }
-                    _ = sleep(sleep_time.to_std().unwrap()) => {}
-                }
-                if let Err(err) = service_ref
-                    .tell(ScheduleServiceMessage::UnitNotification(
-                        UnitNotificationMessage::CheckSchedule,
-                    ))
-                    .await
-                {
-                    error!("{}", err);
-                }
-            }
-        });
-        Ok((refresh_tx, shutdown_tx))
+    pub async fn register_services(self: Arc<Self>) {
+        let communication_manager = self.communication_manager.clone();
+        communication_manager
+            .with_service(self)
+            .command::<ScheduleTimerCommand>()
+            .build();
     }
 
     async fn calculate_sleep_duration(&self) -> Result<Option<Duration>, Error> {
         let mut next_time = None;
-        let service_ref = self
-            .actor_system
-            .actor_of::<ScheduleService>()
-            .ok_or(ActorError::ActorNotFound)?;
-        let response = service_ref
-            .ask(ScheduleServiceMessage::ServiceCall(
-                ServiceCallMessage::GetSchedules,
-            ))
+        let communication_manager = self.communication_manager.clone();
+        let response = communication_manager
+            .send_query(ScheduleManagerQuery::GetSchedules)
             .await?;
-        let ScheduleServiceResponse::ServiceCall(service_call) = response else {
-            return Ok(None);
-        };
-        let ServiceCallResponse::GetSchedules(schedules) = service_call;
+        let ScheduleManagerQueryResponse::GetSchedules(schedules) = response;
         for schedule in schedules {
             if schedule.state != ScheduleState::Active {
                 continue;
@@ -99,6 +69,51 @@ impl ScheduleTimer {
             Ok(Some(Duration::seconds(duration.num_seconds().max(0))))
         } else {
             Ok(None)
+        }
+    }
+}
+
+#[async_trait]
+impl Runnable for ScheduleTimer {
+    async fn run_impl(self: Arc<Self>, mut shutdown_rx: Receiver<()>) {
+        let communication_manager = self.communication_manager.clone();
+
+        loop {
+            let mut sleep_time = match self.calculate_sleep_duration().await {
+                Ok(Some(duration)) => duration,
+                Ok(None) => Duration::seconds(self.app_config.default_wakeup_time),
+                Err(err) => {
+                    error!("{}", err);
+                    Duration::seconds(self.app_config.default_wakeup_time)
+                }
+            };
+            if sleep_time < Duration::seconds(0) {
+                sleep_time = Duration::seconds(0);
+            }
+            select! {
+                biased;
+                _ = &mut shutdown_rx => { break; }
+                _ = self.refresh_notify.notified() => { continue; }
+                _ = sleep(sleep_time.to_std().unwrap()) => {}
+            }
+            if let Err(err) = communication_manager
+                .send_command(ScheduleManagerCommand::ExecuteReadySchedules)
+                .await
+            {
+                error!("{}", err);
+            }
+        }
+    }
+}
+
+#[async_trait]
+impl CommandHandler<ScheduleTimerCommand> for ScheduleTimer {
+    async fn handle_command(&self, command: ScheduleTimerCommand) -> Result<(), Error> {
+        match command {
+            ScheduleTimerCommand::RefreshTimer => {
+                self.refresh_notify.notify_one();
+                Ok(())
+            }
         }
     }
 }
