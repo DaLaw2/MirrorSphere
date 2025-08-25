@@ -21,6 +21,9 @@ use std::sync::Arc;
 use tokio::sync::oneshot;
 
 pub struct System {
+    io_manager: Arc<IOManager>,
+    database_manager: Arc<DatabaseManager>,
+    communication_manager: Arc<CommunicationManager>,
     backup_service: Arc<BackupService>,
     schedule_service: Arc<ScheduleService>,
     gui_manager: Arc<GuiManager>,
@@ -49,8 +52,16 @@ impl System {
             )
             .await?,
         );
-        let gui_manager = Arc::new(GuiManager::new(app_config, communication_manager));
+        let gui_manager = Arc::new(
+            GuiManager::new(
+                app_config,
+                communication_manager.clone()
+            )
+        );
         let system = Self {
+            io_manager,
+            database_manager,
+            communication_manager,
             backup_service,
             schedule_service,
             gui_manager,
@@ -75,10 +86,13 @@ impl System {
     }
 
     pub async fn shutdown(&self) {
-        self.backup_service.shutdown().await;
         while let Some(shutdown) = self.shutdowns.pop() {
             let _ = shutdown.send(());
         }
+        self.backup_service.shutdown().await;
+        self.communication_manager.clear_handlers();
+        self.database_manager.shutdown().await;
+        self.io_manager.shutdown();
     }
 
     fn elevate_privileges() -> Result<(), Error> {

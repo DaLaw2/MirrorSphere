@@ -4,3 +4,4 @@ ui_refresh_time = 2
 default_wakeup_time = 10
 max_concurrency = 16
 max_file_operations = 100
+channel_capacity = 100

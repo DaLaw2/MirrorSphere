@@ -121,6 +121,12 @@ impl CommunicationManager {
             .ok_or(MiscError::TypeNotRegistered)?;
         broadcaster.broadcast_event(Box::new(event))
     }
+    
+    pub fn clear_handlers(&self) {
+        self.command_handlers.clear();
+        self.query_handlers.clear();
+        self.event_broadcasters.clear();
+    }
 }
 
 pub struct ServiceRegistrar<S> {

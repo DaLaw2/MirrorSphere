@@ -1,9 +1,8 @@
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::communication_manager::CommunicationManager;
+use crate::model::core::backup::communication::BackupCommand;
 use crate::model::core::backup::execution::*;
-use crate::model::core::schedule::communication::{
-    ScheduleManagerCommand, ScheduleManagerQuery, ScheduleManagerQueryResponse,
-};
+use crate::model::core::schedule::communication::*;
 use crate::model::core::schedule::schedule::*;
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
@@ -33,6 +32,19 @@ pub struct SchedulePage {
     new_schedule_hash_type: HashType,
     show_add_schedule_dialog: bool,
 
+    // Edit functionality
+    editing_schedule: Option<Schedule>,
+    show_edit_schedule_dialog: bool,
+    edit_schedule_name: String,
+    edit_schedule_source: String,
+    edit_schedule_destination: String,
+    edit_schedule_interval: ScheduleInterval,
+    edit_schedule_mirror: bool,
+    edit_schedule_backup_permission: bool,
+    edit_schedule_follow_symlinks: bool,
+    edit_schedule_comparison_mode: ComparisonModeSelection,
+    edit_schedule_hash_type: HashType,
+
     file_dialog: FileDialog,
     folder_selection_mode: Option<FolderSelectionMode>,
 
@@ -60,6 +72,20 @@ impl SchedulePage {
             new_schedule_comparison_mode: ComparisonModeSelection::Standard,
             new_schedule_hash_type: HashType::BLAKE3,
             show_add_schedule_dialog: false,
+
+            // Initialize edit fields
+            editing_schedule: None,
+            show_edit_schedule_dialog: false,
+            edit_schedule_name: String::new(),
+            edit_schedule_source: String::new(),
+            edit_schedule_destination: String::new(),
+            edit_schedule_interval: ScheduleInterval::Daily,
+            edit_schedule_mirror: false,
+            edit_schedule_backup_permission: false,
+            edit_schedule_follow_symlinks: false,
+            edit_schedule_comparison_mode: ComparisonModeSelection::Standard,
+            edit_schedule_hash_type: HashType::BLAKE3,
+
             file_dialog: FileDialog::new(),
             folder_selection_mode: None,
             show_disabled_schedules: true,
@@ -133,6 +159,20 @@ impl SchedulePage {
         block_on(async {
             self.communication_manager
                 .send_command(ScheduleManagerCommand::DisableSchedule(uuid))
+                .await?;
+            Ok(())
+        })
+    }
+
+    fn handle_run_schedule_now(&self, schedule: Schedule) -> Result<(), Error> {
+        block_on(async {
+            let execution = schedule.to_execution();
+            let uuid = execution.uuid;
+            self.communication_manager
+                .send_command(BackupCommand::AddExecution(execution))
+                .await?;
+            self.communication_manager
+                .send_command(BackupCommand::StartExecution(uuid))
                 .await?;
             Ok(())
         })
@@ -218,6 +258,7 @@ impl SchedulePage {
         });
 
         self.draw_add_schedule_dialog(ctx);
+        self.draw_edit_schedule_dialog(ctx);
         self.draw_schedule_details_window(ctx);
     }
 
@@ -512,28 +553,224 @@ impl SchedulePage {
                 });
         }
 
-        self.file_dialog.update(ctx);
+        // Handle file dialog for both add and edit modes
+        if !self.show_edit_schedule_dialog {
+            self.handle_file_dialog_for_add_mode(ctx);
+        }
+    }
 
-        if let Some(path) = self.file_dialog.take_picked() {
-            if let Some(mode) = &self.folder_selection_mode {
-                match mode {
-                    FolderSelectionMode::Source => {
-                        self.new_schedule_source = path.to_string_lossy().to_string();
+    // New function to draw edit schedule dialog
+    fn draw_edit_schedule_dialog(&mut self, ctx: &egui::Context) {
+        if self.show_edit_schedule_dialog {
+            egui::Window::new("Edit Backup Schedule")
+                .collapsible(false)
+                .resizable(false)
+                .show(ctx, |ui| {
+                    egui::Grid::new("edit_schedule_grid")
+                        .num_columns(3)
+                        .spacing([10.0, 4.0])
+                        .show(ui, |ui| {
+                            ui.label("Schedule Name:");
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.edit_schedule_name),
+                            );
+                            ui.label("");
+                            ui.end_row();
+
+                            ui.label("Source Path:");
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.edit_schedule_source),
+                            );
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Source);
+                                self.file_dialog.pick_directory();
+                            }
+                            ui.end_row();
+
+                            ui.label("Destination Path:");
+                            ui.add_sized(
+                                [300.0, 20.0],
+                                egui::TextEdit::singleline(&mut self.edit_schedule_destination),
+                            );
+                            if ui.button("📁 Browse").clicked() {
+                                self.folder_selection_mode = Some(FolderSelectionMode::Destination);
+                                self.file_dialog.pick_directory();
+                            }
+                            ui.end_row();
+
+                            ui.label("Interval:");
+                            egui::ComboBox::from_label("")
+                                .selected_text(format!("{:?}", self.edit_schedule_interval))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_interval,
+                                        ScheduleInterval::Once,
+                                        "Once",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_interval,
+                                        ScheduleInterval::Daily,
+                                        "Daily",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_interval,
+                                        ScheduleInterval::Weekly,
+                                        "Weekly",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_interval,
+                                        ScheduleInterval::Monthly,
+                                        "Monthly",
+                                    );
+                                });
+                            ui.label("");
+                            ui.end_row();
+                        });
+
+                    ui.separator();
+
+                    ui.label("File Comparison Mode:");
+                    ui.horizontal(|ui| {
+                        ui.radio_value(
+                            &mut self.edit_schedule_comparison_mode,
+                            ComparisonModeSelection::Standard,
+                            "⚡ Standard (Size + Time)",
+                        );
+                        ui.radio_value(
+                            &mut self.edit_schedule_comparison_mode,
+                            ComparisonModeSelection::Advanced,
+                            "🔧 Advanced (+ Attributes)",
+                        );
+                        ui.radio_value(
+                            &mut self.edit_schedule_comparison_mode,
+                            ComparisonModeSelection::Thorough,
+                            "🔍 Thorough (+ Checksum)",
+                        );
+                    });
+
+                    if self.edit_schedule_comparison_mode == ComparisonModeSelection::Thorough {
+                        ui.horizontal(|ui| {
+                            ui.label("  Hash Algorithm:");
+                            egui::ComboBox::from_id_salt("edit_schedule_hash_type")
+                                .selected_text(format!("{:?}", self.edit_schedule_hash_type))
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::BLAKE3,
+                                        "BLAKE3 (Recommended)",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::SHA256,
+                                        "SHA256",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::SHA3,
+                                        "SHA3",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::BLAKE2B,
+                                        "BLAKE2B",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::BLAKE2S,
+                                        "BLAKE2S",
+                                    );
+                                    ui.selectable_value(
+                                        &mut self.edit_schedule_hash_type,
+                                        HashType::MD5,
+                                        "MD5 (Legacy)",
+                                    );
+                                });
+                        });
                     }
-                    FolderSelectionMode::Destination => {
-                        self.new_schedule_destination = path.to_string_lossy().to_string();
-                    }
-                }
-            }
-            self.folder_selection_mode = None;
+
+                    ui.separator();
+
+                    ui.label("Additional Options:");
+                    ui.checkbox(&mut self.edit_schedule_follow_symlinks, "Follow Symlinks");
+                    ui.checkbox(
+                        &mut self.edit_schedule_mirror,
+                        "Mirror Mode (Delete extra files in destination)",
+                    );
+                    ui.checkbox(
+                        &mut self.edit_schedule_backup_permission,
+                        "Backup File Permissions",
+                    );
+
+                    ui.separator();
+
+                    ui.horizontal(|ui| {
+                        if ui.button("Update Schedule").clicked()
+                            && !self.edit_schedule_name.is_empty()
+                            && !self.edit_schedule_source.is_empty()
+                            && !self.edit_schedule_destination.is_empty()
+                        {
+                            if let Some(mut editing_schedule) = self.editing_schedule.clone() {
+                                let comparison_mode = match self.edit_schedule_comparison_mode {
+                                    ComparisonModeSelection::Standard => {
+                                        Some(ComparisonMode::Standard)
+                                    }
+                                    ComparisonModeSelection::Advanced => {
+                                        Some(ComparisonMode::Advanced)
+                                    }
+                                    ComparisonModeSelection::Thorough => {
+                                        Some(ComparisonMode::Thorough(self.edit_schedule_hash_type))
+                                    }
+                                };
+
+                                editing_schedule.name = self.edit_schedule_name.clone();
+                                editing_schedule.source_path =
+                                    PathBuf::from(&self.edit_schedule_source);
+                                editing_schedule.destination_path =
+                                    PathBuf::from(&self.edit_schedule_destination);
+                                editing_schedule.interval = self.edit_schedule_interval;
+                                editing_schedule.comparison_mode = comparison_mode;
+                                editing_schedule.options = BackupOptions {
+                                    mirror: self.edit_schedule_mirror,
+                                    backup_permission: self.edit_schedule_backup_permission,
+                                    follow_symlinks: self.edit_schedule_follow_symlinks,
+                                };
+                                editing_schedule.updated_at = chrono::Utc::now().naive_utc();
+
+                                if let Err(err) = self.handle_modify_schedule(editing_schedule) {
+                                    error!("{}", err);
+                                }
+
+                                self.reset_edit_schedule_form();
+                            }
+                        }
+
+                        if ui.button("Cancel").clicked() {
+                            self.reset_edit_schedule_form();
+                        }
+                    });
+                });
+        }
+
+        // Handle file dialog for edit mode
+        if self.show_edit_schedule_dialog {
+            self.handle_file_dialog_for_edit_mode(ctx);
         }
     }
 
     fn draw_schedule_details_window(&mut self, ctx: &egui::Context) {
         if let Some(schedule_id) = self.viewing_schedule_details {
             let mut show_window = true;
+            let mut run_now_clicked = false;
+            let mut edit_clicked = false;
 
-            if let Some(schedule) = self.schedules.iter().find(|s| s.uuid == schedule_id) {
+            // Clone the schedule data we need before entering the closure
+            let schedule_data = self.schedules.iter()
+                .find(|s| s.uuid == schedule_id)
+                .cloned();
+
+            if let Some(schedule) = schedule_data {
                 egui::Window::new(format!("Schedule Details - {}", schedule.name))
                     .open(&mut show_window)
                     .resizable(true)
@@ -624,19 +861,112 @@ impl SchedulePage {
                         ui.separator();
 
                         ui.horizontal(|ui| {
-                            if ui.button("Run Now").clicked() {
-                                println!("Would run schedule {} now", schedule.name);
+                            // Use local flags to track button clicks
+                            if ui.button("▶ Run Now").clicked() {
+                                run_now_clicked = true;
                             }
-                            if ui.button("Edit").clicked() {
-                                println!("Would edit schedule {}", schedule.name);
+
+                            if ui.button("✏ Edit").clicked() {
+                                edit_clicked = true;
                             }
                         });
                     });
-            }
 
+                if run_now_clicked {
+                    if let Err(err) = self.handle_run_schedule_now(schedule.clone()) {
+                        error!("Failed to run schedule now: {}", err);
+                    } else {
+                        self.load_schedules();
+                    }
+                }
+                if edit_clicked {
+                    self.start_editing_schedule(schedule);
+                }
+            }
             if !show_window {
                 self.viewing_schedule_details = None;
             }
+        }
+    }
+
+    fn start_editing_schedule(&mut self, schedule: Schedule) {
+        self.editing_schedule = Some(schedule.clone());
+        self.edit_schedule_name = schedule.name.clone();
+        self.edit_schedule_source = schedule.source_path.to_string_lossy().to_string();
+        self.edit_schedule_destination = schedule.destination_path.to_string_lossy().to_string();
+        self.edit_schedule_interval = schedule.interval;
+        self.edit_schedule_mirror = schedule.options.mirror;
+        self.edit_schedule_backup_permission = schedule.options.backup_permission;
+        self.edit_schedule_follow_symlinks = schedule.options.follow_symlinks;
+
+        if let Some(comparison_mode) = &schedule.comparison_mode {
+            match comparison_mode {
+                ComparisonMode::Standard => {
+                    self.edit_schedule_comparison_mode = ComparisonModeSelection::Standard;
+                }
+                ComparisonMode::Advanced => {
+                    self.edit_schedule_comparison_mode = ComparisonModeSelection::Advanced;
+                }
+                ComparisonMode::Thorough(hash_type) => {
+                    self.edit_schedule_comparison_mode = ComparisonModeSelection::Thorough;
+                    self.edit_schedule_hash_type = *hash_type;
+                }
+            }
+        } else {
+            self.edit_schedule_comparison_mode = ComparisonModeSelection::Standard;
+        }
+
+        self.show_edit_schedule_dialog = true;
+        self.viewing_schedule_details = None;
+    }
+
+    fn reset_edit_schedule_form(&mut self) {
+        self.editing_schedule = None;
+        self.edit_schedule_name.clear();
+        self.edit_schedule_source.clear();
+        self.edit_schedule_destination.clear();
+        self.edit_schedule_interval = ScheduleInterval::Daily;
+        self.edit_schedule_mirror = false;
+        self.edit_schedule_backup_permission = false;
+        self.edit_schedule_follow_symlinks = false;
+        self.edit_schedule_comparison_mode = ComparisonModeSelection::Standard;
+        self.edit_schedule_hash_type = HashType::BLAKE3;
+        self.show_edit_schedule_dialog = false;
+    }
+
+    fn handle_file_dialog_for_add_mode(&mut self, ctx: &egui::Context) {
+        self.file_dialog.update(ctx);
+
+        if let Some(path) = self.file_dialog.take_picked() {
+            if let Some(mode) = &self.folder_selection_mode {
+                match mode {
+                    FolderSelectionMode::Source => {
+                        self.new_schedule_source = path.to_string_lossy().to_string();
+                    }
+                    FolderSelectionMode::Destination => {
+                        self.new_schedule_destination = path.to_string_lossy().to_string();
+                    }
+                }
+            }
+            self.folder_selection_mode = None;
+        }
+    }
+
+    fn handle_file_dialog_for_edit_mode(&mut self, ctx: &egui::Context) {
+        self.file_dialog.update(ctx);
+
+        if let Some(path) = self.file_dialog.take_picked() {
+            if let Some(mode) = &self.folder_selection_mode {
+                match mode {
+                    FolderSelectionMode::Source => {
+                        self.edit_schedule_source = path.to_string_lossy().to_string();
+                    }
+                    FolderSelectionMode::Destination => {
+                        self.edit_schedule_destination = path.to_string_lossy().to_string();
+                    }
+                }
+            }
+            self.folder_selection_mode = None;
         }
     }
 
