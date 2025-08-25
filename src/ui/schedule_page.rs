@@ -1,11 +1,10 @@
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::core::schedule::schedule_service::ScheduleService;
-use crate::model::core::actor::actor_ref::ActorRef;
-use crate::model::core::backup::backup_execution::*;
-use crate::model::core::schedule::backup_schedule::*;
-use crate::model::core::schedule::message::*;
-use crate::model::error::actor::ActorError;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
+use crate::model::core::backup::execution::*;
+use crate::model::core::schedule::communication::{
+    ScheduleManagerCommand, ScheduleManagerQuery, ScheduleManagerQueryResponse,
+};
+use crate::model::core::schedule::schedule::*;
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, FolderSelectionMode};
 use eframe::egui;
@@ -19,11 +18,9 @@ use uuid::Uuid;
 
 pub struct SchedulePage {
     app_config: Arc<AppConfig>,
-    actor_system: Arc<ActorSystem>,
+    communication_manager: Arc<CommunicationManager>,
 
-    schedule_service_ref: ActorRef<ScheduleServiceMessage>,
-
-    schedules: Vec<BackupSchedule>,
+    schedules: Vec<Schedule>,
 
     new_schedule_name: String,
     new_schedule_source: String,
@@ -45,14 +42,13 @@ pub struct SchedulePage {
 }
 
 impl SchedulePage {
-    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Result<Self, Error> {
-        let schedule_service_ref = actor_system
-            .actor_of::<ScheduleService>()
-            .ok_or(ActorError::ActorNotFound)?;
+    pub fn new(
+        app_config: Arc<AppConfig>,
+        communication_manager: Arc<CommunicationManager>,
+    ) -> Result<Self, Error> {
         let schedule_page = Self {
             app_config,
-            actor_system,
-            schedule_service_ref,
+            communication_manager,
             schedules: Vec::new(),
             new_schedule_name: String::new(),
             new_schedule_source: String::new(),
@@ -75,98 +71,69 @@ impl SchedulePage {
 
     fn load_schedules(&mut self) {
         match block_on(async {
-            self.schedule_service_ref
-                .ask(ScheduleServiceMessage::ServiceCall(
-                    ServiceCallMessage::GetSchedules,
-                ))
+            self.communication_manager
+                .send_query(ScheduleManagerQuery::GetSchedules)
                 .await
         }) {
-            Ok(ScheduleServiceResponse::ServiceCall(ServiceCallResponse::GetSchedules(
-                schedules,
-            ))) => {
+            Ok(ScheduleManagerQueryResponse::GetSchedules(schedules)) => {
                 self.schedules = schedules;
             }
-            Ok(ScheduleServiceResponse::None) => {}
             Err(err) => {
                 error!("{}", err);
             }
         }
     }
 
-    fn handle_add_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    fn handle_add_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::AddSchedule(schedule));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::AddSchedule(schedule))
+                .await?;
             Ok(())
         })
     }
 
-    fn handle_modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    fn handle_modify_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::ModifySchedule(schedule));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::ModifySchedule(schedule))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::RemoveSchedule(uuid));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::RemoveSchedule(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_active_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::ActivateSchedule(uuid));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::ActivateSchedule(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_pause_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::PauseSchedule(uuid));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::PauseSchedule(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_disable_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<ScheduleService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                ScheduleServiceMessage::ServiceCall(ServiceCallMessage::DisableSchedule(uuid));
-            backup_actor_ref.tell(message).await?;
+            self.communication_manager
+                .send_command(ScheduleManagerCommand::DisableSchedule(uuid))
+                .await?;
             Ok(())
         })
     }
@@ -226,7 +193,7 @@ impl SchedulePage {
             egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    let schedules_to_show: Vec<BackupSchedule> = self
+                    let schedules_to_show: Vec<Schedule> = self
                         .schedules
                         .iter()
                         .filter(|schedule| {
@@ -254,7 +221,7 @@ impl SchedulePage {
         self.draw_schedule_details_window(ctx);
     }
 
-    fn draw_schedule_item(&mut self, ui: &mut egui::Ui, schedule: &BackupSchedule) {
+    fn draw_schedule_item(&mut self, ui: &mut egui::Ui, schedule: &Schedule) {
         egui::Frame::new()
             .fill(ui.visuals().faint_bg_color)
             .inner_margin(8.0)
@@ -511,7 +478,7 @@ impl SchedulePage {
                                 }
                             };
 
-                            let schedule = BackupSchedule {
+                            let schedule = Schedule {
                                 uuid: Uuid::new_v4(),
                                 name: self.new_schedule_name.clone(),
                                 state: ScheduleState::Active,

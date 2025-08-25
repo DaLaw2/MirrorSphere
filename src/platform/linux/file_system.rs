@@ -1,4 +1,4 @@
-use crate::interface::file_system::FileSystemTrait;
+use crate::interface::core::file_system::FileSystemTrait;
 use crate::model::error::Error;
 use crate::model::error::io::IOError;
 use crate::model::error::system::SystemError;

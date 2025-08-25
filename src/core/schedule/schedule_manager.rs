@@ -1,10 +1,13 @@
-use crate::core::backup::backup_service::BackupService;
-use crate::core::infrastructure::actor_system::ActorSystem;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::core::infrastructure::database_manager::DatabaseManager;
+use crate::interface::communication::command::CommandHandler;
+use crate::interface::communication::query::QueryHandler;
 use crate::interface::repository::schedule::ScheduleRepository;
-use crate::model::core::backup::message::{BackupServiceMessage, ServiceCallMessage};
-use crate::model::core::schedule::backup_schedule::*;
+use crate::model::core::backup::communication::BackupCommand;
+use crate::model::core::schedule::communication::*;
+use crate::model::core::schedule::schedule::*;
 use crate::model::error::Error;
+use async_trait::async_trait;
 use chrono::{Duration, Months, Utc};
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -12,14 +15,14 @@ use uuid::Uuid;
 
 pub struct ScheduleManager {
     database_manager: Arc<DatabaseManager>,
-    actor_system: Arc<ActorSystem>,
-    schedules: DashMap<Uuid, BackupSchedule>,
+    communication_manager: Arc<CommunicationManager>,
+    schedules: DashMap<Uuid, Schedule>,
 }
 
 impl ScheduleManager {
     pub async fn new(
         database_manager: Arc<DatabaseManager>,
-        actor_system: Arc<ActorSystem>,
+        communication_manager: Arc<CommunicationManager>,
     ) -> Result<Self, Error> {
         let schedules = DashMap::new();
         let database_schedules = database_manager.get_all_backup_schedules().await?;
@@ -28,35 +31,53 @@ impl ScheduleManager {
         }
         let schedule_manager = ScheduleManager {
             database_manager,
-            actor_system,
+            communication_manager,
             schedules,
         };
         Ok(schedule_manager)
     }
 
-    pub async fn get_all_schedules(&self) -> Vec<BackupSchedule> {
+    pub async fn register_services(self: Arc<Self>) {
+        let communication_manager = self.communication_manager.clone();
+        communication_manager
+            .with_service(self)
+            .command::<ScheduleManagerCommand>()
+            .query::<ScheduleManagerQuery>()
+            .build();
+    }
+
+    pub async fn get_all_schedules(&self) -> Vec<Schedule> {
         self.schedules.iter().map(|x| x.value().clone()).collect()
     }
 
-    pub async fn create_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    pub async fn create_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         self.database_manager
             .create_backup_schedule(&schedule)
             .await?;
         self.schedules.insert(schedule.uuid, schedule);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
-    pub async fn modify_schedule(&self, schedule: BackupSchedule) -> Result<(), Error> {
+    pub async fn modify_schedule(&self, schedule: Schedule) -> Result<(), Error> {
         self.database_manager
             .modify_backup_schedule(&schedule)
             .await?;
         self.schedules.insert(schedule.uuid, schedule);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
     pub async fn remove_schedule(&self, uuid: Uuid) -> Result<(), Error> {
         self.database_manager.remove_backup_schedule(uuid).await?;
         self.schedules.remove(&uuid);
+        self.communication_manager
+            .send_command(ScheduleTimerCommand::RefreshTimer)
+            .await?;
         Ok(())
     }
 
@@ -67,6 +88,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }
@@ -78,6 +102,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }
@@ -89,6 +116,9 @@ impl ScheduleManager {
                 .modify_backup_schedule(&schedule)
                 .await?;
             self.schedules.insert(schedule.uuid, schedule);
+            self.communication_manager
+                .send_command(ScheduleTimerCommand::RefreshTimer)
+                .await?;
         }
         Ok(())
     }
@@ -108,13 +138,8 @@ impl ScheduleManager {
                     continue;
                 }
                 let execution = schedule.to_execution();
-                if let Some(service_ref) = self.actor_system.actor_of::<BackupService>() {
-                    service_ref
-                        .tell(BackupServiceMessage::ServiceCall(
-                            ServiceCallMessage::AddExecution(execution),
-                        ))
-                        .await?;
-                }
+                let command = BackupCommand::AddExecution(execution);
+                self.communication_manager.send_command(command).await?;
                 self.update_next_run_time(schedule);
                 database_manager.modify_backup_schedule(schedule).await?;
             }
@@ -123,7 +148,7 @@ impl ScheduleManager {
         Ok(())
     }
 
-    fn update_next_run_time(&self, schedule: &mut BackupSchedule) {
+    fn update_next_run_time(&self, schedule: &mut Schedule) {
         if schedule.next_run_time.is_none() {
             return;
         }
@@ -141,5 +166,50 @@ impl ScheduleManager {
         };
         schedule.last_run_time = Some(now);
         schedule.next_run_time = new_next_run_time;
+    }
+}
+
+#[async_trait]
+impl CommandHandler<ScheduleManagerCommand> for ScheduleManager {
+    async fn handle_command(&self, command: ScheduleManagerCommand) -> Result<(), Error> {
+        match command {
+            ScheduleManagerCommand::AddSchedule(schedule) => {
+                self.create_schedule(schedule).await?;
+            }
+            ScheduleManagerCommand::ModifySchedule(schedule) => {
+                self.modify_schedule(schedule).await?;
+            }
+            ScheduleManagerCommand::RemoveSchedule(uuid) => {
+                self.remove_schedule(uuid).await?;
+            }
+            ScheduleManagerCommand::ActivateSchedule(uuid) => {
+                self.active_schedule(uuid).await?;
+            }
+            ScheduleManagerCommand::PauseSchedule(uuid) => {
+                self.pause_schedule(uuid).await?;
+            }
+            ScheduleManagerCommand::DisableSchedule(uuid) => {
+                self.disable_schedule(uuid).await?;
+            }
+            ScheduleManagerCommand::ExecuteReadySchedules => {
+                self.execute_ready_schedule().await?;
+            }
+        }
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl QueryHandler<ScheduleManagerQuery> for ScheduleManager {
+    async fn handle_query(
+        &self,
+        query: ScheduleManagerQuery,
+    ) -> Result<ScheduleManagerQueryResponse, Error> {
+        match query {
+            ScheduleManagerQuery::GetSchedules => {
+                let executions = self.get_all_schedules().await;
+                Ok(ScheduleManagerQueryResponse::GetSchedules(executions))
+            }
+        }
     }
 }

@@ -1,12 +1,8 @@
-use crate::core::backup::backup_service::BackupService;
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::model::core::backup::backup_execution::*;
-use crate::model::core::backup::message::{
-    BackupServiceMessage, BackupServiceResponse, ServiceCallMessage, ServiceCallResponse,
-};
-use crate::model::core::gui::message::GuiMessage;
-use crate::model::error::actor::ActorError;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
+use crate::model::core::backup::communication::{BackupCommand, BackupQuery, BackupQueryResponse};
+use crate::model::core::backup::execution::*;
+use crate::model::core::gui::communication::{ExecutionErrors, ExecutionProgress, FolderProcess};
 use crate::model::error::Error;
 use crate::ui::common::{ComparisonModeSelection, ExecutionDisplay, FolderSelectionMode};
 use dashmap::DashMap;
@@ -15,16 +11,19 @@ use egui_file_dialog::FileDialog;
 use futures::executor::block_on;
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::{mpsc, Arc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::broadcast;
 use tracing::error;
 use uuid::Uuid;
 
 pub struct ExecutionPage {
     app_config: Arc<AppConfig>,
-    actor_system: Arc<ActorSystem>,
+    communication_manager: Arc<CommunicationManager>,
 
-    message_rx: mpsc::Receiver<GuiMessage>,
+    folder_process: broadcast::Receiver<FolderProcess>,
+    execution_progress: broadcast::Receiver<ExecutionProgress>,
+    execution_errors: broadcast::Receiver<ExecutionErrors>,
 
     executions: DashMap<Uuid, ExecutionDisplay>,
     error_messages: DashMap<Uuid, Vec<Error>>,
@@ -50,13 +49,17 @@ pub struct ExecutionPage {
 impl ExecutionPage {
     pub fn new(
         app_config: Arc<AppConfig>,
-        actor_system: Arc<ActorSystem>,
-        message_rx: mpsc::Receiver<GuiMessage>,
-    ) -> Self {
-        Self {
+        communication_manager: Arc<CommunicationManager>,
+    ) -> Result<Self, Error> {
+        let folder_process = communication_manager.subscribe_event::<FolderProcess>()?;
+        let execution_progress = communication_manager.subscribe_event::<ExecutionProgress>()?;
+        let execution_errors = communication_manager.subscribe_event::<ExecutionErrors>()?;
+        let execution_page = Self {
             app_config,
-            actor_system,
-            message_rx,
+            communication_manager,
+            folder_process,
+            execution_progress,
+            execution_errors,
             executions: DashMap::new(),
             error_messages: DashMap::new(),
             new_task_source: String::new(),
@@ -73,34 +76,30 @@ impl ExecutionPage {
             show_completed_tasks: true,
             viewing_errors_for_task: None,
             last_refresh: None,
-        }
+        };
+        Ok(execution_page)
     }
 
     fn process_events(&mut self) {
-        while let Ok(message) = self.message_rx.try_recv() {
-            match message {
-                GuiMessage::FolderProcess { uuid, folder } => {
-                    if let Some(mut task_display) = self.executions.get_mut(&uuid) {
-                        task_display.current_folder = folder.to_string_lossy().to_string();
-                    }
-                }
-                GuiMessage::ExecutionProgress {
-                    uuid,
-                    processed_files,
-                    error_count,
-                } => {
-                    if let Some(mut task_display) = self.executions.get_mut(&uuid) {
-                        task_display.processed_files = processed_files;
-                        task_display.error_count = error_count;
-                    }
-                }
-                GuiMessage::ExecutionErrors { uuid, errors } => {
-                    match self.error_messages.get_mut(&uuid) {
-                        Some(mut errors_ref) => errors_ref.extend(errors),
-                        None => {
-                            self.error_messages.insert(uuid, errors);
-                        }
-                    }
+        while let Ok(event) = self.folder_process.try_recv() {
+            let FolderProcess { uuid, folder } = event;
+            if let Some(mut task_display) = self.executions.get_mut(&uuid) {
+                task_display.current_folder = folder.to_string_lossy().to_string();
+            }
+        }
+        while let Ok(event) = self.execution_progress.try_recv() {
+            let ExecutionProgress { uuid, processed_files, error_count } = event;
+            if let Some(mut task_display) = self.executions.get_mut(&uuid) {
+                task_display.processed_files = processed_files;
+                task_display.error_count = error_count;
+            }
+        }
+        while let Ok(event) = self.execution_errors.try_recv() {
+            let ExecutionErrors { uuid, errors } = event;
+            match self.error_messages.get_mut(&uuid) {
+                Some(mut errors_ref) => errors_ref.extend(errors),
+                None => {
+                    self.error_messages.insert(uuid, errors);
                 }
             }
         }
@@ -108,20 +107,11 @@ impl ExecutionPage {
 
     fn sync_all_execution_states(&mut self) {
         if let Ok(response) = block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            backup_actor_ref
-                .ask(BackupServiceMessage::ServiceCall(
-                    ServiceCallMessage::GetExecutions,
-                ))
+            self.communication_manager
+                .send_query(BackupQuery::GetExecutions)
                 .await
         }) {
-            let BackupServiceResponse::ServiceCall(service_call) = response else {
-                return;
-            };
-            let ServiceCallResponse::GetExecutions(latest_executions) = service_call;
+            let BackupQueryResponse::GetExecutions(latest_executions) = response;
             let latest_ids: HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
 
             for (task_id, latest_execution) in latest_executions {
@@ -143,82 +133,47 @@ impl ExecutionPage {
         }
     }
 
-    fn handle_add_execution(&mut self, execution: BackupExecution) -> Result<(), Error> {
+    fn handle_add_execution(&mut self, execution: Execution) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                BackupServiceMessage::ServiceCall(ServiceCallMessage::AddExecution(execution));
-            backup_actor_ref
-                .tell(message)
-                .await
-                .map_err(|_| ActorError::SendMessageError)?;
+            self.communication_manager
+                .send_command(BackupCommand::AddExecution(execution))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_start_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                BackupServiceMessage::ServiceCall(ServiceCallMessage::StartExecution(uuid));
-            backup_actor_ref
-                .tell(message)
-                .await
-                .map_err(|_| ActorError::SendMessageError)?;
+            self.communication_manager
+                .send_command(BackupCommand::StartExecution(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_suspend_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                BackupServiceMessage::ServiceCall(ServiceCallMessage::SuspendExecution(uuid));
-            backup_actor_ref
-                .tell(message)
-                .await
-                .map_err(|_| ActorError::SendMessageError)?;
+            self.communication_manager
+                .send_command(BackupCommand::SuspendExecution(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_resume_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                BackupServiceMessage::ServiceCall(ServiceCallMessage::ResumeExecution(uuid));
-            backup_actor_ref
-                .tell(message)
-                .await
-                .map_err(|_| ActorError::SendMessageError)?;
+            self.communication_manager
+                .send_command(BackupCommand::ResumeExecution(uuid))
+                .await?;
             Ok(())
         })
     }
 
     fn handle_remove_execution(&mut self, uuid: Uuid) -> Result<(), Error> {
         block_on(async {
-            let backup_actor_ref = self
-                .actor_system
-                .actor_of::<BackupService>()
-                .ok_or(ActorError::ActorNotFound)?;
-            let message =
-                BackupServiceMessage::ServiceCall(ServiceCallMessage::RemoveExecution(uuid));
-            backup_actor_ref
-                .tell(message)
-                .await
-                .map_err(|_| ActorError::SendMessageError)?;
+            self.communication_manager
+                .send_command(BackupCommand::RemoveExecution(uuid))
+                .await?;
             Ok(())
         })
     }
@@ -543,7 +498,7 @@ impl ExecutionPage {
                                 }
                             };
 
-                            let execution = BackupExecution {
+                            let execution = Execution {
                                 uuid: Uuid::new_v4(),
                                 state: BackupState::Pending,
                                 source_path: PathBuf::from(&self.new_task_source),
@@ -559,7 +514,8 @@ impl ExecutionPage {
 
                             match self.handle_add_execution(execution.clone()) {
                                 Ok(_) => {
-                                    let execution_display = ExecutionDisplay::from(execution.clone());
+                                    let execution_display =
+                                        ExecutionDisplay::from(execution.clone());
                                     self.executions.insert(execution.uuid, execution_display);
                                     self.reset_form();
                                 }

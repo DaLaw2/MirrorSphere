@@ -1,5 +1,5 @@
 use crate::core::infrastructure::app_config::AppConfig;
-use crate::interface::file_system::FileSystemTrait;
+use crate::interface::core::file_system::FileSystemTrait;
 use crate::platform::file_system::FileSystem;
 use std::ops::Deref;
 use std::sync::Arc;
