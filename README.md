@@ -65,7 +65,10 @@ max_file_operations = 100    # Maximum concurrent file operations
 
 ### Main Interface
 
-![Main Interface](.github/images/main-interface.png)
+![Main Interface](.github/images/main-interface-execution.png)
+![Main Interface](.github/images/main-interface-execution-1.png)
+![Main Interface](.github/images/main-interface-schedule.png)
+![Main Interface](.github/images/main-interface-schedule-1.png)
 
 *The main execution management interface showing backup tasks, progress tracking, and control options.*
 
