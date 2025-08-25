@@ -35,37 +35,6 @@ impl CommunicationManager {
         ServiceRegistrar::new(service, self)
     }
 
-    pub fn register_event_type<E: Event + 'static>(&self) {
-        let channel_capacity = self.app_config.channel_capacity;
-        let type_id = TypeId::of::<E>();
-        let (tx, _) = broadcast::channel(channel_capacity);
-        let broadcaster = TypedEventBroadcaster { sender: tx };
-        self.event_broadcasters
-            .insert(type_id, Box::new(broadcaster));
-    }
-
-    pub async fn publish_event<E: Event + 'static>(&self, event: E) -> Result<(), Error> {
-        let type_id = TypeId::of::<E>();
-        let broadcaster = self
-            .event_broadcasters
-            .get(&type_id)
-            .ok_or(MiscError::TypeNotRegistered)?;
-        broadcaster.broadcast_event(Box::new(event))
-    }
-
-    pub fn subscribe_event<E: Event + 'static>(&self) -> Result<broadcast::Receiver<E>, Error> {
-        let type_id = TypeId::of::<E>();
-        let broadcaster = self
-            .event_broadcasters
-            .get(&type_id)
-            .ok_or(MiscError::TypeNotRegistered)?;
-        let receiver_box = broadcaster.subscribe_typed();
-        let receiver = *receiver_box
-            .downcast::<broadcast::Receiver<E>>()
-            .map_err(|_| MiscError::TypeMismatch)?;
-        Ok(receiver)
-    }
-
     pub fn register_command_handler<C: Command + 'static>(
         &self,
         handler: Arc<dyn CommandHandler<C> + Send + Sync>,
@@ -120,6 +89,37 @@ impl CommunicationManager {
         } else {
             Err(MiscError::HandlerNotFound)?
         }
+    }
+
+    pub fn register_event_type<E: Event + 'static>(&self) {
+        let channel_capacity = self.app_config.channel_capacity;
+        let type_id = TypeId::of::<E>();
+        let (tx, _) = broadcast::channel::<E>(channel_capacity);
+        let broadcaster = TypedEventBroadcaster { sender: tx };
+        self.event_broadcasters
+            .insert(type_id, Box::new(broadcaster));
+    }
+
+    pub fn subscribe_event<E: Event + 'static>(&self) -> Result<broadcast::Receiver<E>, Error> {
+        let type_id = TypeId::of::<E>();
+        let broadcaster = self
+            .event_broadcasters
+            .get(&type_id)
+            .ok_or(MiscError::TypeNotRegistered)?;
+        let receiver_box = broadcaster.subscribe_typed();
+        let receiver = *receiver_box
+            .downcast::<broadcast::Receiver<E>>()
+            .map_err(|_| MiscError::TypeMismatch)?;
+        Ok(receiver)
+    }
+
+    pub async fn publish_event<E: Event + 'static>(&self, event: E) -> Result<(), Error> {
+        let type_id = TypeId::of::<E>();
+        let broadcaster = self
+            .event_broadcasters
+            .get(&type_id)
+            .ok_or(MiscError::TypeNotRegistered)?;
+        broadcaster.broadcast_event(Box::new(event))
     }
 
     pub fn has_command_handler<C: Command + 'static>(&self) -> bool {

@@ -1,6 +1,5 @@
-use crate::core::gui::gui_message_handler::GuiMessageHandler;
-use crate::core::infrastructure::actor_system::ActorSystem;
 use crate::core::infrastructure::app_config::AppConfig;
+use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::model::error::misc::MiscError;
 use crate::model::error::Error;
 use crate::ui::execution_page::ExecutionPage;
@@ -13,28 +12,26 @@ use std::sync::Arc;
 
 pub struct GuiManager {
     app_config: Arc<AppConfig>,
-    actor_system: Arc<ActorSystem>,
+    communication_manager: Arc<CommunicationManager>,
 }
 
 impl GuiManager {
-    pub fn new(app_config: Arc<AppConfig>, actor_system: Arc<ActorSystem>) -> Self {
+    pub fn new(
+        app_config: Arc<AppConfig>,
+        communication_manager: Arc<CommunicationManager>,
+    ) -> Self {
         Self {
             app_config,
-            actor_system,
+            communication_manager,
         }
     }
 
     pub async fn start(&self) -> Result<(), Error> {
         let app_config = self.app_config.clone();
-        let actor_system = self.actor_system.clone();
+        let communication_manager = self.communication_manager.clone();
 
-        let mut handler = GuiMessageHandler::new();
-        let message_rx = handler.subscribe();
-        actor_system.spawn(handler).await;
-
-        let execution_page =
-            ExecutionPage::new(app_config.clone(), actor_system.clone(), message_rx);
-        let schedule_page = SchedulePage::new(app_config, actor_system)?;
+        let execution_page = ExecutionPage::new(app_config.clone(), communication_manager.clone())?;
+        let schedule_page = SchedulePage::new(app_config, communication_manager)?;
         let main_page = MainPage::new(execution_page, schedule_page);
 
         let icon_data = Assets::load_app_icon()?;

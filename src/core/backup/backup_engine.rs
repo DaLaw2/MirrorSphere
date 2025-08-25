@@ -1,5 +1,4 @@
 use crate::core::backup::progress_tracker::ProgressTracker;
-use crate::core::gui::gui_message_handler::GuiMessageHandler;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::core::infrastructure::io_manager::IOManager;
@@ -167,14 +166,14 @@ impl BackupEngine {
     fn to_execution_runner(&self) -> ExecutionRunner {
         let config = self.app_config.clone();
         let io_manager = self.io_manager.clone();
-        let actor_system = self.actor_system.clone();
+        let communication_manager = self.communication_manager.clone();
         let progress_tracker = self.progress_tracker.clone();
         let executions = self.executions.clone();
         let running_executions = self.running_executions.clone();
         ExecutionRunner::new(
             config,
             io_manager,
-            actor_system,
+            communication_manager,
             progress_tracker,
             executions,
             running_executions,

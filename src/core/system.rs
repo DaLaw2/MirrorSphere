@@ -1,9 +1,11 @@
 use crate::core::backup::backup_service::BackupService;
+use crate::core::gui::gui_manager::GuiManager;
 use crate::core::infrastructure::app_config::AppConfig;
 use crate::core::infrastructure::communication_manager::CommunicationManager;
 use crate::core::infrastructure::database_manager::DatabaseManager;
 use crate::core::infrastructure::io_manager::IOManager;
 use crate::core::schedule::schedule_service::ScheduleService;
+use crate::interface::core::runnable::Runnable;
 use crate::model::error::Error;
 use crate::model::log::system::SystemLog;
 #[cfg(any(target_os = "windows", not(debug_assertions)))]
@@ -17,11 +19,11 @@ use privilege::user::privileged;
 use std::process;
 use std::sync::Arc;
 use tokio::sync::oneshot;
-use crate::interface::core::runnable::Runnable;
 
 pub struct System {
     backup_service: Arc<BackupService>,
     schedule_service: Arc<ScheduleService>,
+    gui_manager: Arc<GuiManager>,
     shutdowns: SegQueue<oneshot::Sender<()>>,
 }
 
@@ -47,9 +49,11 @@ impl System {
             )
             .await?,
         );
+        let gui_manager = Arc::new(GuiManager::new(app_config, communication_manager));
         let system = Self {
             backup_service,
             schedule_service,
+            gui_manager,
             shutdowns: SegQueue::new(),
         };
         Ok(system)
@@ -59,17 +63,18 @@ impl System {
         Logging::initialize().await;
         log!(SystemLog::Initializing);
         Self::elevate_privileges()?;
-        self.backup_service.register_services().await;
-        self.schedule_service.register_services().await;
-        let schedule_service_shutdown = self.schedule_service.run().await;
+        let backup_service = self.backup_service.clone();
+        let schedule_service = self.schedule_service.clone();
+        let gui_manager = self.gui_manager.clone();
+        backup_service.register_services().await;
+        schedule_service.register_services().await;
+        let schedule_service_shutdown = schedule_service.run().await;
         self.shutdowns.push(schedule_service_shutdown);
         log!(SystemLog::InitializeComplete);
         gui_manager.start().await
     }
 
-    pub fn shutdown(&self) {
-        self.actor_system.shutdown();
-    }
+    pub fn shutdown(&self) {}
 
     fn elevate_privileges() -> Result<(), Error> {
         #[cfg(not(debug_assertions))]
