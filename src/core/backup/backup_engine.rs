@@ -22,7 +22,7 @@ use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
 use tracing::error;
 use uuid::Uuid;
-use crate::model::core::gui::communication::ExecutionErrors;
+use crate::model::core::gui::communication::{ExecutionErrors, ExecutionProgress, FolderProcess};
 
 pub struct BackupEngine {
     app_config: Arc<AppConfig>,
@@ -56,6 +56,8 @@ impl BackupEngine {
             .with_service(self)
             .command::<BackupCommand>()
             .query::<BackupQuery>()
+            .event::<FolderProcess>()
+            .event::<ExecutionProgress>()
             .event::<ExecutionErrors>()
             .build();
     }

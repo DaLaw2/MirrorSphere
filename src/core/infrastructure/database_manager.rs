@@ -39,6 +39,11 @@ impl DatabaseManager {
         self.pool.clone()
     }
 
+    pub async fn shutdown(&self) {
+        self.pool.close().await;
+        self._lock.release();
+    }
+
     pub async fn exist_database() -> bool {
         fs::metadata(DATABASE_PATH).await.is_ok()
     }

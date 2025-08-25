@@ -39,7 +39,7 @@ pub struct Schedule {
 impl Schedule {
     pub fn to_execution(&self) -> Execution {
         Execution {
-            uuid: self.uuid,
+            uuid: Uuid::new_v4(),
             state: BackupState::Pending,
             source_path: self.source_path.clone(),
             destination_path: self.destination_path.clone(),

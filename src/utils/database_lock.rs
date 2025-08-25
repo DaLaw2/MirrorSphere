@@ -21,6 +21,10 @@ impl DatabaseLock {
             Err(DatabaseError::LockDatabaseFailed("Lock file already exists."))?
         }
     }
+    
+    pub fn release(&self) {
+        let _ = fs::remove_file(DATABASE_LOCK_PATH);
+    }
 }
 
 impl Drop for DatabaseLock {

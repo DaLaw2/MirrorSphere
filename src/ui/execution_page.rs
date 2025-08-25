@@ -115,9 +115,8 @@ impl ExecutionPage {
             let latest_ids: HashSet<Uuid> = latest_executions.iter().map(|(id, _)| *id).collect();
 
             for (task_id, latest_execution) in latest_executions {
-                if let Some(mut display) = self.executions.get_mut(&task_id) {
-                    display.execution = latest_execution;
-                }
+                let execution_display = ExecutionDisplay::from(latest_execution);
+                self.executions.insert(task_id, execution_display);
             }
 
             self.executions
