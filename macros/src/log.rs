@@ -31,7 +31,7 @@ pub fn log_impl(input: TokenStream) -> TokenStream {
     if let Some(debug_info) = &input.debug_info {
         quote! {
             {
-                let error = #error_expr;
+                let error = &#error_expr;
                 let level = error.level();
                 let message = error.to_string();
                 let debug_info = #debug_info;
@@ -48,7 +48,7 @@ pub fn log_impl(input: TokenStream) -> TokenStream {
     } else {
         quote! {
             {
-                let error = #error_expr;
+                let error = &#error_expr;
                 let level = error.level();
                 let message = error.to_string();
 

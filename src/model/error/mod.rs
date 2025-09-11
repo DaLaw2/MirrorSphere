@@ -10,6 +10,7 @@ use crate::model::error::misc::MiscError;
 use crate::model::error::system::SystemError;
 use crate::model::error::task::TaskError;
 use serde::{Deserialize, Serialize};
+use tracing::Level;
 
 #[derive(Clone, Debug, thiserror::Error, Serialize, Deserialize)]
 pub enum Error {
@@ -23,6 +24,18 @@ pub enum Error {
     System(SystemError),
     #[error("{0}")]
     Task(TaskError),
+}
+
+impl Error {
+    pub fn level(&self) -> Level {
+        match self {
+            Error::Database(err) => err.level(),
+            Error::IO(err) => err.level(),
+            Error::Misc(err) => err.level(),
+            Error::System(err) => err.level(),
+            Error::Task(err) => err.level(),
+        }
+    }
 }
 
 impl From<DatabaseError> for Error {

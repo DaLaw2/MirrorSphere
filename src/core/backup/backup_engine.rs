@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::task::JoinHandle;
-use tracing::error;
 use uuid::Uuid;
 use crate::model::core::gui::communication::{ExecutionErrors, ExecutionProgress, FolderProcess};
 
@@ -272,7 +271,7 @@ impl ExecutionRunner {
                                 .publish_event::<ExecutionErrors>(event)
                                 .await
                             {
-                                error!("{}", err);
+                                log!(err);
                             }
                         }
                     }
@@ -286,7 +285,7 @@ impl ExecutionRunner {
                     .save_execution(execution.uuid, current_level, errors)
                     .await
                 {
-                    error!("{}", err);
+                    log!(err);
                 }
                 break;
             } else {
