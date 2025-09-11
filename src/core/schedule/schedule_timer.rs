@@ -8,11 +8,11 @@ use crate::model::error::Error;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use std::sync::Arc;
+use macros::log;
 use tokio::select;
 use tokio::sync::Notify;
 use tokio::sync::oneshot;
 use tokio::time::sleep;
-use tracing::error;
 
 pub struct ScheduleTimer {
     app_config: Arc<AppConfig>,
@@ -82,7 +82,7 @@ impl Runnable for ScheduleTimer {
                 Ok(Some(duration)) => duration,
                 Ok(None) => Duration::seconds(self.app_config.default_wakeup_time),
                 Err(err) => {
-                    error!("{}", err);
+                    log!(err);
                     Duration::seconds(self.app_config.default_wakeup_time)
                 }
             };
@@ -99,7 +99,7 @@ impl Runnable for ScheduleTimer {
                 .send_command(ScheduleManagerCommand::ExecuteReadySchedules)
                 .await
             {
-                error!("{}", err);
+                log!(err);
             }
         }
     }

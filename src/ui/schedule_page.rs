@@ -12,7 +12,7 @@ use futures::executor::block_on;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::error;
+use macros::log;
 use uuid::Uuid;
 
 pub struct SchedulePage {
@@ -105,7 +105,7 @@ impl SchedulePage {
                 self.schedules = schedules;
             }
             Err(err) => {
-                error!("{}", err);
+                log!(err);
             }
         }
     }
@@ -322,21 +322,21 @@ impl SchedulePage {
                             ScheduleState::Active => {
                                 if ui.button("⏸ Pause").clicked() {
                                     if let Err(err) = self.handle_pause_schedule(schedule.uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
                             ScheduleState::Paused => {
                                 if ui.button("▶ Resume").clicked() {
                                     if let Err(err) = self.handle_active_schedule(schedule.uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
                             ScheduleState::Disabled => {
                                 if ui.button("▶ Enable").clicked() {
                                     if let Err(err) = self.handle_active_schedule(schedule.uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
@@ -346,13 +346,13 @@ impl SchedulePage {
                             && ui.button("❌ Disable").clicked()
                         {
                             if let Err(err) = self.handle_disable_schedule(schedule.uuid) {
-                                error!("{}", err);
+                                log!(err);
                             }
                         }
 
                         if ui.button("🗑").clicked() {
                             if let Err(err) = self.handle_remove_schedule(schedule.uuid) {
-                                error!("{}", err);
+                                log!(err);
                             }
                         }
                     });
@@ -540,7 +540,7 @@ impl SchedulePage {
                             };
 
                             if let Err(err) = self.handle_add_schedule(schedule) {
-                                error!("{}", err);
+                                log!(err);
                             }
 
                             self.reset_schedule_form();
@@ -739,7 +739,7 @@ impl SchedulePage {
                                 editing_schedule.updated_at = chrono::Utc::now().naive_utc();
 
                                 if let Err(err) = self.handle_modify_schedule(editing_schedule) {
-                                    error!("{}", err);
+                                    log!(err);
                                 }
 
                                 self.reset_edit_schedule_form();
@@ -874,7 +874,7 @@ impl SchedulePage {
 
                 if run_now_clicked {
                     if let Err(err) = self.handle_run_schedule_now(schedule.clone()) {
-                        error!("Failed to run schedule now: {}", err);
+                        log!(err);
                     } else {
                         self.load_schedules();
                     }

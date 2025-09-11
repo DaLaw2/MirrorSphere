@@ -13,8 +13,8 @@ use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use macros::log;
 use tokio::sync::broadcast;
-use tracing::error;
 use uuid::Uuid;
 
 pub struct ExecutionPage {
@@ -344,21 +344,21 @@ impl ExecutionPage {
                             BackupState::Pending => {
                                 if ui.button("▶ Start").clicked() {
                                     if let Err(err) = self.handle_start_execution(uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
                             BackupState::Suspended => {
                                 if ui.button("▶ Resume").clicked() {
                                     if let Err(err) = self.handle_resume_execution(uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
                             BackupState::Running => {
                                 if ui.button("⏸ Pause").clicked() {
                                     if let Err(err) = self.handle_suspend_execution(uuid) {
-                                        error!("{}", err);
+                                        log!(err);
                                     }
                                 }
                             }
@@ -367,7 +367,7 @@ impl ExecutionPage {
 
                         if ui.button("🗑").clicked() {
                             if let Err(err) = self.handle_remove_execution(uuid) {
-                                error!("{}", err);
+                                log!(err);
                             }
                         }
                     });
@@ -519,7 +519,7 @@ impl ExecutionPage {
                                     self.reset_form();
                                 }
                                 Err(err) => {
-                                    error!("{}", err);
+                                    log!(err);
                                 }
                             }
                         }
